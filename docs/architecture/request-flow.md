@@ -4,6 +4,33 @@
 
 The order creation workflow uses synchronous REST communication between the API Gateway, Order Service, and Payment Service.
 
+The following sequence diagram illustrates the complete request lifecycle, including order creation, payment processing, database operations, and the final response.
+
+## Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant G as API Gateway
+    participant O as Order Service
+    participant P as Payment Service
+    participant OD as Order DB
+    participant PD as Payment DB
+
+    C->>G: POST /api/orders
+    G->>O: POST /orders
+    O->>OD: Create PENDING Order
+    OD-->>O: Order Created
+    O->>P: POST /payments
+    P->>PD: Save Payment Result
+    PD-->>P: Payment Saved
+    P-->>O: Payment Result
+    O->>OD: Update Order Status
+    OD-->>O: Updated
+    O-->>G: Order Result
+    G-->>C: HTTP Response
+```
+
 ## Successful Payment Flow
 
 1. The client sends a `POST /api/orders` request to the API Gateway.
