@@ -3,13 +3,14 @@ const InMemoryOrderRepository = require("./repositories/in-memory-order.reposito
 const OrderService = require("./services/order.service");
 const createOrderRouter = require("./routes/order.routes");
 const errorHandler = require("./middleware/error-handler");
+const PaymentClient = require("./clients/payment.client");
 
 function createApp({
-  orderRepository = new InMemoryOrderRepository()
+  orderRepository = new InMemoryOrderRepository(),
+  paymentClient = new PaymentClient()
 } = {}) {
   const app = express();
-
-  const orderService = new OrderService(orderRepository);
+  const orderService = new OrderService(orderRepository, paymentClient);
 
   app.use(express.json({ limit: "10kb" }));
 
