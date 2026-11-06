@@ -1,87 +1,162 @@
-# System Overview
+# PulseTrace — System Overview
 
-## Project Purpose
+## 1. Project Description
 
-PulseTrace is a local-first microservices platform built to demonstrate how distributed applications can be developed, deployed, monitored, and troubleshot.
+PulseTrace is a microservices-based application built with Node.js and Express.
 
-The application starts with three independent services and a PostgreSQL database instance. Observability capabilities will be introduced in later development phases.
+It simulates a simple e-commerce workflow involving order creation and payment processing through independently running services.
 
-## Application Components
+The project focuses on exploring how distributed applications can be monitored, debugged, and maintained using modern observability practices.
 
-### 1. API Gateway
+The application is intentionally kept simple so that engineering effort can focus on service communication, failure handling, monitoring, centralized logging, and distributed tracing.
 
-The API Gateway is the public entry point of the application.
+## 2. System Components
 
-Responsibilities:
-- Receive client HTTP requests.
-- Route requests to the appropriate internal service.
-- Return service responses to clients.
-- Keep internal service endpoints private.
+PulseTrace currently consists of three microservices:
 
-### 2. Order Service
-
-The Order Service manages customer orders.
-
-Responsibilities:
-- Validate incoming order data.
-- Create and retrieve orders.
-- Communicate with the Payment Service.
-- Update order status based on payment results.
-- Own and manage the order database.
-
-### 3. Payment Service
-
-The Payment Service handles simulated payment processing.
-
-Responsibilities:
-- Receive payment requests from the Order Service.
-- Simulate successful and failed payments.
-- Store payment records.
-- Return payment results to the Order Service.
-- Own and manage the payment database.
-
-No real payment provider is integrated.
-
-### 4. PostgreSQL
-
-The application uses one PostgreSQL instance with two separate databases:
-
-| Database | Owner | Purpose |
+| Service | Responsibility | Default Port |
 |---|---|---|
-| `order_db` | Order Service | Store order records |
-| `payment_db` | Payment Service | Store payment records |
+| API Gateway | Entry point for client requests | 3000 |
+| Order Service | Order creation and retrieval | 3001 |
+| Payment Service | Payment processing and retrieval | 3002 |
 
-Each service is responsible for accessing and managing its own database.
+Each service runs independently and exposes HTTP endpoints.
 
-## Service Communication
+## 3. Application Workflow
 
-Services communicate through synchronous REST APIs.
+The main application workflow is order creation.
 
-The main request path is:
+1. A client submits an order through the API Gateway.
+2. The Gateway forwards the request to the Order Service.
+3. The Order Service creates an order with `PENDING` status.
+4. The Order Service sends a payment request to the Payment Service.
+5. The Payment Service returns a successful or failed payment result.
+6. The Order Service updates the order status.
+7. The Gateway returns the final response to the client.
 
-Client → API Gateway → Order Service → Payment Service
+Possible final order statuses:
 
-The Payment Service returns its result to the Order Service, which updates the order status.
+- `PAID`
+- `PAYMENT_FAILED`
+- `PENDING` when the payment request cannot be completed.
 
-## Order Lifecycle
+For the detailed request sequence, see [Request Flow](./request-flow.md).
 
-An order follows one of these states:
+## 4. Technology Stack
 
-- `PENDING`: The order has been created and payment is being processed.
-- `PAID`: Payment was successful.
-- `PAYMENT_FAILED`: Payment processing failed.
+### Application
 
-## Development Principles
+- Node.js
+- Express.js
+- JavaScript
+- HTTP / REST
+- JSON
+- Node.js Test Runner
+- Supertest
 
-- Each service has a clearly defined responsibility.
-- Each service owns its data.
-- Internal services are not directly exposed to clients.
-- Payment processing is simulated.
-- The application is developed and tested locally.
-- Observability is added progressively in dedicated phases.
+### Current Data Storage
 
-## Current Scope
+- In-memory JavaScript Maps
+- Repository pattern
 
-The initial application focuses on service communication, data ownership, REST APIs, database persistence, and failure handling.
+### Planned Infrastructure and Observability
 
-Monitoring, centralized logging, distributed tracing, alerting, and Kubernetes are planned for later phases.
+- Docker
+- Docker Compose
+- PostgreSQL
+- Prometheus
+- Grafana
+- Alertmanager
+- Loki
+- Fluent Bit
+- OpenTelemetry
+- Jaeger
+- Kubernetes
+- GitHub Actions
+
+The planned technologies will be introduced incrementally as the project evolves.
+
+## 5. Current Implementation Status
+
+| Capability | Status |
+|---|---|
+| API Gateway | Implemented |
+| Order Service | Implemented |
+| Payment Service | Implemented |
+| Synchronous service communication | Implemented |
+| Request validation | Implemented |
+| Centralized error response format | Implemented |
+| In-memory repositories | Implemented |
+| Automated API tests | Implemented |
+| End-to-end request flow | Implemented |
+| Docker containerization | Planned |
+| PostgreSQL persistence | Planned |
+| Metrics collection | Planned |
+| Centralized logging | Planned |
+| Distributed tracing | Planned |
+| Alerting | Planned |
+| Kubernetes deployment | Planned |
+| CI/CD pipeline | Planned |
+
+## 6. Observability Goals
+
+The main objective of PulseTrace is to progressively build a complete observability implementation.
+
+The project aims to provide three complementary capabilities:
+
+### Metrics
+
+Measure application and service behavior, including:
+
+- Request rate
+- Request latency
+- Error rate
+- Service availability
+- Resource utilization
+
+### Logging
+
+Centralize application logs to make it easier to:
+
+- Investigate errors.
+- Understand service behavior.
+- Correlate events across services.
+- Troubleshoot failures.
+
+### Distributed Tracing
+
+Trace individual requests across service boundaries to understand:
+
+- Which services handled a request.
+- How much time each service spent processing it.
+- Where failures occurred.
+- How services depend on one another.
+
+### Alerting
+
+Introduce actionable alerts based on application health and monitoring signals.
+
+## 7. Development Approach
+
+PulseTrace is developed incrementally.
+
+Each stage introduces a specific capability, validates its behavior, and documents the implementation before moving forward.
+
+The development approach prioritizes:
+
+- Small, testable changes.
+- Clear service boundaries.
+- Reproducible local environments.
+- Automated validation.
+- Practical observability scenarios.
+- Documentation that reflects the actual implementation.
+
+## 8. Project Documentation
+
+| Document | Description |
+|---|---|
+| [Architecture](./architecture.md) | Overall system architecture and design decisions |
+| [Request Flow](./request-flow.md) | Order creation sequence and failure scenarios |
+| [API Contracts](../api/api-contracts.md) | Service endpoints, request formats, and responses |
+| [Error Handling](../api/error-handling.md) | Error codes and failure behavior |
+

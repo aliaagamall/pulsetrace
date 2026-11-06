@@ -2,98 +2,157 @@
 
 ## Overview
 
-The order creation workflow uses synchronous REST communication between the API Gateway, Order Service, and Payment Service.
+PulseTrace uses synchronous HTTP communication to process order creation requests across three microservices.
 
-The following sequence diagram illustrates the complete request lifecycle, including order creation, payment processing, database operations, and the final response.
+The API Gateway receives client requests and forwards them to the Order Service. The Order Service creates an order with a `PENDING` status, then sends a payment request to the Payment Service.
 
-## Sequence Diagram
+The Payment Service processes the payment request and stores the result. Based on the response, the Order Service updates the order status.
+
+The current implementation uses in-memory repositories. Data is not persistent and is lost when a service restarts.
+
+## Successful Request Flow
+
+The following sequence illustrates the complete order creation flow when payment succeeds.
 
 ```mermaid
 sequenceDiagram
     participant C as Client
     participant G as API Gateway
     participant O as Order Service
+    participant OR as Order Repository
     participant P as Payment Service
-    participant OD as Order DB
-    participant PD as Payment DB
+    participant PR as Payment Repository
 
     C->>G: POST /api/orders
     G->>O: POST /orders
-    O->>OD: Create PENDING Order
-    OD-->>O: Order Created
+    O->>OR: Create order (PENDING)
+    OR-->>O: Order created
+
     O->>P: POST /payments
-    P->>PD: Save Payment Result
-    PD-->>P: Payment Saved
-    P-->>O: Payment Result
-    O->>OD: Update Order Status
-    OD-->>O: Updated
-    O-->>G: Order Result
-    G-->>C: HTTP Response
+    P->>PR: Save payment (SUCCEEDED)
+    PR-->>P: Payment saved
+    P-->>O: Payment result
+
+    O->>OR: Update order (PAID)
+    OR-->>O: Updated order
+
+    O-->>G: HTTP 201 Created
+    G-->>C: HTTP 201 Created
 ```
 
-## Successful Payment Flow
+## Payment Outcomes
 
-1. The client sends a `POST /api/orders` request to the API Gateway.
-2. The API Gateway forwards the request to the Order Service.
-3. The Order Service validates the request.
-4. The Order Service creates an order with `PENDING` status in `order_db`.
-5. The Order Service sends a payment request to the Payment Service.
-6. The Payment Service processes the simulated payment.
-7. The Payment Service stores the payment result in `payment_db`.
-8. The Payment Service returns the result to the Order Service.
-9. The Order Service updates the order status to `PAID`.
-10. The API Gateway returns the final response to the client.
+The Payment Service can return either a successful or failed payment result.
 
-## Failed Payment Flow
+### Successful Payment
 
-When payment processing fails:
+When payment succeeds:
 
-1. The Order Service creates the order with `PENDING` status.
-2. The Payment Service simulates a payment failure.
-3. The Payment Service stores the failed payment result.
-4. The Payment Service returns a failure response.
-5. The Order Service updates the order status to `PAYMENT_FAILED`.
-6. The API Gateway returns the final order result to the client.
+- The Payment Service creates a payment with `SUCCEEDED` status.
+- The Order Service updates the order to `PAID`.
+- The order response includes the generated `paymentId`.
 
-## Payment Simulation
+### Failed Payment
 
-The application supports an optional `simulateFailure` field for development and testing.
+When payment fails:
 
-Example successful request:
+- The Payment Service creates a payment with `FAILED` status.
+- The Order Service updates the order to `PAYMENT_FAILED`.
+- The order response includes the generated `paymentId`.
 
-```json
-{
-  "customerId": "customer-123",
-  "amount": 1500,
-  "currency": "EGP"
-}
+```mermaid
+sequenceDiagram
+    participant O as Order Service
+    participant OR as Order Repository
+    participant P as Payment Service
+    participant PR as Payment Repository
+
+    O->>P: POST /payments
+    P->>PR: Save payment (FAILED)
+    PR-->>P: Payment saved
+    P-->>O: Payment result (FAILED)
+    O->>OR: Update order (PAYMENT_FAILED)
+    OR-->>O: Updated order
 ```
 
-Example simulated failure request:
+## Payment Service Failure
 
-```json
-{
-  "customerId": "customer-123",
-  "amount": 1500,
-  "currency": "EGP",
-  "simulateFailure": true
-}
+If the Order Service cannot complete the payment request because of a connection error, timeout, or another request failure:
+
+1. The Order Service has already saved the order with `PENDING` status.
+2. The payment request fails.
+3. The Order Service catches the error and logs it.
+4. The original order is returned without a payment ID.
+5. The API responds with `HTTP 201 Created`.
+
+The order remains `PENDING`.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant G as API Gateway
+    participant O as Order Service
+    participant OR as Order Repository
+    participant P as Payment Service
+
+    C->>G: POST /api/orders
+    G->>O: POST /orders
+    O->>OR: Create order (PENDING)
+    OR-->>O: Order created
+
+    O->>P: POST /payments
+    P--xO: Request fails
+
+    Note over O: Error is caught and logged
+    O-->>G: Original PENDING order
+    G-->>C: HTTP 201 Created
 ```
 
-The simulation control is intended for development and testing environments only. It must not be exposed as a client-controlled payment option in production.
+## Important Implementation Details
 
-## Failure Considerations
+### Synchronous Communication
 
-The initial implementation uses synchronous communication.
+Service-to-service communication currently uses HTTP requests.
 
-Potential failure scenarios include:
+The Order Service waits for the Payment Service response before completing the order creation request.
 
-- Payment Service unavailable.
-- Payment request timeout.
-- Payment processing failure.
-- Database connection failure.
-- Order status update failure.
+### In-Memory Storage
 
-The initial design does not implement distributed transactions or automatic compensation.
+Both services currently use in-memory repositories:
 
-These limitations will be documented and tested as the project evolves.
+- `InMemoryOrderRepository` stores order records.
+- `InMemoryPaymentRepository` stores payment records.
+
+These repositories are temporary and do not provide persistent storage.
+
+### Request Timeouts
+
+The HTTP clients use a timeout of 3000 milliseconds.
+
+The API Gateway maps Order Service connection failures and timeouts to:
+
+- `503 Service Unavailable` for unavailable service connections.
+- `504 Gateway Timeout` for timed-out requests.
+
+The Order Service currently catches Payment Service request failures and returns the original `PENDING` order instead of propagating the error to the Gateway.
+
+### Health Checks
+
+Each service exposes a `/health` endpoint.
+
+The current health checks verify that the service process is running. They do not verify the availability of dependent services.
+
+## Current Limitations
+
+The current request flow intentionally keeps business logic simple and focuses on service communication and observability.
+
+Current limitations include:
+
+- No persistent database storage.
+- No automatic payment retries.
+- No message broker or asynchronous processing.
+- No distributed transaction management.
+- No real payment provider integration.
+- No dependency-aware health checks.
+
+These limitations may be addressed in future project stages where relevant.
