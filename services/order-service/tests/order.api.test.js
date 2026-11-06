@@ -7,8 +7,18 @@ const createApp = require("../src/app");
 
 process.env.NODE_ENV = "test";
 
+function createTestApp() {
+  const paymentClient = {
+    async createPayment() {
+      throw new Error("Payment Client should not be called in API tests.");
+    }
+  };
+
+  return createApp({ paymentClient });
+}
+
 test("POST /orders creates a new order", async () => {
-  const app = createApp();
+  const app = createTestApp();
 
   const response = await request(app)
     .post("/orders")
@@ -28,7 +38,7 @@ test("POST /orders creates a new order", async () => {
 });
 
 test("POST /orders rejects an invalid amount", async () => {
-  const app = createApp();
+  const app = createTestApp();
 
   const response = await request(app)
     .post("/orders")
@@ -43,7 +53,7 @@ test("POST /orders rejects an invalid amount", async () => {
 });
 
 test("POST /orders rejects an invalid customer ID", async () => {
-  const app = createApp();
+  const app = createTestApp();
 
   const response = await request(app)
     .post("/orders")
@@ -58,7 +68,7 @@ test("POST /orders rejects an invalid customer ID", async () => {
 });
 
 test("POST /orders rejects an invalid currency", async () => {
-  const app = createApp();
+  const app = createTestApp();
 
   const response = await request(app)
     .post("/orders")
@@ -73,7 +83,7 @@ test("POST /orders rejects an invalid currency", async () => {
 });
 
 test("GET /orders/:id returns an existing order", async () => {
-  const app = createApp();
+  const app = createTestApp();
 
   const createResponse = await request(app)
     .post("/orders")
@@ -94,7 +104,7 @@ test("GET /orders/:id returns an existing order", async () => {
 });
 
 test("GET /orders/:id returns 404 for an unknown order", async () => {
-  const app = createApp();
+  const app = createTestApp();
 
   const response = await request(app)
     .get("/orders/non-existing-id");
