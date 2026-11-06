@@ -1,0 +1,19 @@
+{
+  "name": "pulsetrace",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A local-first microservices platform with end-to-end observability.",
+  "workspaces": [
+    "services/api-gateway",
+    "services/order-service",
+    "services/payment-service"
+  ],
+  "scripts": {
+    "dev:gateway": "npm run dev --workspace=@pulsetrace/api-gateway",
+    "dev:orders": "npm run dev --workspace=@pulsetrace/order-service",
+    "dev:payments": "npm run dev --workspace=@pulsetrace/payment-service",
+    "start:gateway": "npm run start --workspace=@pulsetrace/api-gateway",
+    "start:orders": "npm run start --workspace=@pulsetrace/order-service",
+    "start:payments": "npm run start --workspace=@pulsetrace/payment-service"
+  }
+}
