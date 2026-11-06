@@ -14,6 +14,7 @@
     "dev:payments": "npm run dev --workspace=@pulsetrace/payment-service",
     "start:gateway": "npm run start --workspace=@pulsetrace/api-gateway",
     "start:orders": "npm run start --workspace=@pulsetrace/order-service",
-    "start:payments": "npm run start --workspace=@pulsetrace/payment-service"
+    "start:payments": "npm run start --workspace=@pulsetrace/payment-service",
+    "test:e2e": "node --test tests/e2e/*.test.js"
   }
 }
