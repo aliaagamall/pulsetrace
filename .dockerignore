@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Git
+.git/
+
+# Environment variables and secrets
+.env
+.env.*
+
+# Tests and documentation
+tests/
+**/tests/
+docs/
+README.md
+
+# Build and test artifacts
+dist/
+coverage/
+**/dist/
+**/coverage/
+
+# Logs
+*.log
+npm-debug.log*
