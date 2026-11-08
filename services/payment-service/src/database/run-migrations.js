@@ -1,7 +1,7 @@
 const fs = require("node:fs/promises");
 const path = require("node:path");
 
-async function runMigrations(pool, migrationDirectory) {
+async function runMigrations(pool, migrationDirectory, logger) {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       filename TEXT PRIMARY KEY,
@@ -35,7 +35,7 @@ async function runMigrations(pool, migrationDirectory) {
           [filename]
         );
 
-        console.log(`Applied migration: ${filename}`);
+        logger?.info({ migration: filename }, "Applied migration");
       }
 
       await client.query("COMMIT");

@@ -1,6 +1,9 @@
 function createPaymentController(paymentService) {
   async function createPayment(req, res) {
-    const payment = await paymentService.createPayment(req.body);
+    // Pass the request logger down so the service can log the payment result.
+    const payment = await paymentService.createPayment(req.body, {
+      logger: req.log
+    });
 
     res.status(201).json({
       data: payment

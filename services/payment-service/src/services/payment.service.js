@@ -27,7 +27,8 @@ class PaymentService {
     }
   }
 
-  async createPayment(input = {}) {
+  // context carries the request logger (optional).
+  async createPayment(input = {}, context = {}) {
     this.validatePaymentInput(input);
 
     const { orderId, amount, currency } = input;
@@ -57,7 +58,18 @@ class PaymentService {
       createdAt: new Date().toISOString()
     };
 
-    return this.paymentRepository.create(payment);
+    const createdPayment = await this.paymentRepository.create(payment);
+
+    context.logger?.info(
+      {
+        paymentId: createdPayment.id,
+        orderId: createdPayment.orderId,
+        status: createdPayment.status
+      },
+      "Payment processed"
+    );
+
+    return createdPayment;
   }
 
   async getPaymentById(id) {
