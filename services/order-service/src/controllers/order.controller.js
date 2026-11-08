@@ -1,6 +1,10 @@
 function createOrderController(orderService) {
   async function createOrder(req, res) {
-    const order = await orderService.createOrder(req.body);
+    // Pass the request ID and request logger down to the service layer.
+    const order = await orderService.createOrder(req.body, {
+      requestId: req.id,
+      logger: req.log
+    });
 
     res.status(201).json({
       data: order

@@ -1,4 +1,3 @@
-
 class PaymentClient {
   constructor({
     baseUrl = process.env.PAYMENT_SERVICE_URL || "http://localhost:3002",
@@ -8,19 +7,26 @@ class PaymentClient {
     this.timeout = timeout;
   }
 
-  async createPayment(paymentData) {
+  // context.requestId is forwarded so the Payment Service logs the same ID.
+  async createPayment(paymentData, { requestId } = {}) {
     const controller = new AbortController();
     const timeoutId = setTimeout(
       () => controller.abort(),
       this.timeout
     );
 
+    const headers = {
+      "Content-Type": "application/json"
+    };
+
+    if (requestId) {
+      headers["x-request-id"] = requestId;
+    }
+
     try {
       const response = await fetch(`${this.baseUrl}/payments`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
+        headers,
         body: JSON.stringify(paymentData),
         signal: controller.signal
       });

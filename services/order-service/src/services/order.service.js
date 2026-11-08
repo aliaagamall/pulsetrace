@@ -37,10 +37,12 @@ class OrderService {
     }
   }
 
-  async createOrder(input = {}) {
+  // context carries the request ID and the request logger (both optional).
+  async createOrder(input = {}, context = {}) {
     this.validateOrderInput(input);
 
     const { customerId, amount, currency, simulateFailure } = input;
+    const { requestId, logger } = context;
     const now = new Date().toISOString();
 
     const order = {
@@ -67,15 +69,33 @@ class OrderService {
         paymentData.simulateFailure = simulateFailure;
       }
 
-      const payment = await this.paymentClient.createPayment(paymentData);
+      const payment = await this.paymentClient.createPayment(
+        paymentData,
+        { requestId }
+      );
 
-      return await this.orderRepository.update(createdOrder.id, {
+      const updatedOrder = await this.orderRepository.update(createdOrder.id, {
         status: payment.status === "SUCCEEDED" ? "PAID" : "PAYMENT_FAILED",
         paymentId: payment.id,
         updatedAt: new Date().toISOString()
       });
+
+      logger?.info(
+        {
+          orderId: updatedOrder.id,
+          status: updatedOrder.status,
+          paymentId: payment.id
+        },
+        "Order payment processed"
+      );
+
+      return updatedOrder;
     } catch (error) {
-      console.error("Payment processing failed:", error.message);
+      logger?.error(
+        { error, orderId: createdOrder.id },
+        "Payment processing failed, order left PENDING"
+      );
+
       return createdOrder;
     }
   }
