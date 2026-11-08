@@ -13,7 +13,7 @@ The objectives are to:
 - Distinguish business outcomes from technical failures.
 - Preserve the order state when a payment result cannot be confirmed.
 
-The current implementation uses synchronous REST communication and in-memory repositories.
+The implementation uses synchronous REST communication and PostgreSQL persistence (one database per service).
 
 ## 2. Error Response Structure
 
@@ -50,6 +50,25 @@ The current implementation does not include a `details` field in its error respo
 
 Internal stack traces and technical error objects are not returned to clients by the Order Service and Payment Service error handlers. Their unexpected server errors are logged internally.
 
+### Error Flow
+
+```mermaid
+flowchart TD
+    Req["Incoming request"] --> V{"Valid?"}
+    V -- "No" --> AppErr["AppError (400)"]
+    V -- "Yes" --> Op["Service operation"]
+    Op --> NF{"Resource found?"}
+    NF -- "No" --> NotFound["AppError (404)"]
+    NF -- "Yes" --> OK["2xx response"]
+    Op -. "unexpected error" .-> Unhandled["Unhandled error"]
+    AppErr --> EH["error-handler middleware"]
+    NotFound --> EH
+    Unhandled --> EH
+    EH --> S{"status >= 500?"}
+    S -- "Yes" --> Generic["Log error, return generic message"]
+    S -- "No" --> Msg["Return error message"]
+```
+
 ## 3. Client Errors
 
 Client errors occur when a request contains invalid data or references a resource that does not exist.
@@ -64,7 +83,7 @@ The services validate incoming request bodies before performing their operations
 
 | Error Code | Condition |
 |---|---|
-| `INVALID_REQUEST_BODY` | Request body is not a valid JSON object |
+| `INVALID_REQUEST_BODY` | Request body is not a valid JSON object, or JSON parsing failed |
 | `INVALID_CUSTOMER_ID` | `customerId` is missing, empty, or not a string |
 | `INVALID_AMOUNT` | Amount is not a positive finite number |
 | `INVALID_CURRENCY` | Currency does not contain exactly three uppercase letters |
@@ -86,22 +105,20 @@ Example:
 
 | Error Code | Condition |
 |---|---|
-| `INVALID_REQUEST_BODY` | Request body is not a valid JSON object |
+| `INVALID_REQUEST_BODY` | Request body is not a valid JSON object, or JSON parsing failed |
 | `INVALID_ORDER_ID` | `orderId` is missing, empty, or not a string |
 | `INVALID_AMOUNT` | Amount is not a positive finite number |
 | `INVALID_CURRENCY` | Currency does not contain exactly three uppercase letters |
 | `INVALID_SIMULATION_FLAG` | `simulateFailure` is not a boolean |
 | `SIMULATION_NOT_ALLOWED` | `simulateFailure` is supplied in production |
 
-The current Payment Service validates `orderId` as a non-empty string. It does not validate its UUID format.
+The Payment Service validates `orderId` as a non-empty string at the application level. The database column is `UUID` (see [section 7](#7-persistence-and-data-failure-considerations)).
 
 The currency validation checks the three-uppercase-letter format. It does not verify whether the value is an officially assigned ISO 4217 currency code.
 
 ### 3.2 Resource Not Found
 
 **HTTP Status:** `404 Not Found`
-
-Returned when a requested resource does not exist.
 
 | Service | Error Code | Condition |
 |---|---|---|
@@ -125,8 +142,6 @@ Example:
 
 Each service returns `ROUTE_NOT_FOUND` when a request targets an endpoint that is not registered.
 
-Example:
-
 ```json
 {
   "error": {
@@ -144,18 +159,14 @@ A business failure represents a valid API operation that produces an unsuccessfu
 
 A simulated payment failure is not an HTTP API error.
 
-The current flow is:
-
 1. The Order Service creates an order with `PENDING` status.
 2. The Order Service sends a payment request to the Payment Service.
-3. The Payment Service creates a payment record with `FAILED` status.
+3. The Payment Service creates a payment record with `FAILED` status in `payment_db`.
 4. The Payment Service returns `201 Created` with the payment record.
 5. The Order Service updates the order to `PAYMENT_FAILED`.
 6. The Gateway returns the order response with `201 Created`.
 
 The order and payment records represent two different resources and have their own statuses.
-
-Example payment result:
 
 ```json
 {
@@ -174,17 +185,11 @@ The HTTP response indicates that the payment record was created successfully. Th
 
 ## 5. Service Communication Errors
 
-PulseTrace currently uses synchronous HTTP communication between services.
-
-The behavior of a communication failure depends on which service is affected.
+PulseTrace uses synchronous HTTP communication between services. The behavior of a communication failure depends on which service is affected.
 
 ### 5.1 Payment Service Unavailable
 
-The Order Service sends payment requests through its `PaymentClient`.
-
-If the Payment Service cannot be reached, the request throws an error.
-
-The current Order Service behavior is:
+The Order Service sends payment requests through its `PaymentClient`. If the Payment Service cannot be reached, the request throws an error.
 
 1. The order is created and stored with `PENDING` status.
 2. The payment request fails.
@@ -197,17 +202,15 @@ The returned order has:
 - `status: "PENDING"`
 - `paymentId: null`
 
-The Order Service does not currently return a dedicated `503` response for this scenario.
+The Order Service does not return a dedicated `503` response for this scenario. A successful order creation response does not necessarily confirm successful payment processing.
 
-This means that a successful order creation response does not necessarily confirm successful payment processing.
+The same path is taken when the Payment Service responds with a non-2xx status, for example `500`: `PaymentClient` throws, the Order Service logs it, and the order stays `PENDING`.
 
 ### 5.2 Payment Service Timeout
 
 The Payment Client configures a request timeout of 3000 milliseconds.
 
-If the request fails or times out, the error is caught by the Order Service.
-
-The current behavior is:
+If the request fails or times out, the error is caught by the Order Service:
 
 - The order remains `PENDING`.
 - `paymentId` remains `null`.
@@ -216,13 +219,9 @@ The current behavior is:
 
 A timeout does not prove that the Payment Service did not process the payment. The payment outcome may be unknown.
 
-The current implementation does not perform automatic retries or payment reconciliation.
-
 ### 5.3 Order Service Unavailable
 
-The API Gateway communicates with the Order Service through `OrderClient`.
-
-The Gateway client configures a request timeout of 3000 milliseconds.
+The API Gateway communicates with the Order Service through `OrderClient`, which also uses a 3000 ms timeout.
 
 When the Order Service cannot be reached, the Gateway returns:
 
@@ -239,7 +238,7 @@ When the Order Service cannot be reached, the Gateway returns:
 
 ### 5.4 Order Service Timeout
 
-When the Order Service does not respond within the Gateway client's configured timeout, the Gateway returns:
+When the Order Service does not respond within the Gateway client's timeout, the Gateway returns:
 
 **HTTP Status:** `504 Gateway Timeout`
 
@@ -256,24 +255,20 @@ The Gateway does not automatically retry the request.
 
 ### 5.5 Upstream HTTP Errors
 
-The Gateway forwards HTTP responses received from the Order Service, including error status codes and response bodies.
+The Gateway forwards HTTP responses received from the Order Service, including error status codes and response bodies. For example, an Order Service `400`, `404`, or `500` response is forwarded to the client.
 
-For example, an Order Service `400` or `404` response is forwarded to the client.
-
-If the Gateway encounters an error while communicating with the Order Service that does not contain a specific status code or error code, its error handler uses:
+If the Gateway encounters an error that does not carry a specific status code or error code, its error handler uses:
 
 - HTTP status: `502 Bad Gateway`
 - Error code: `UPSTREAM_SERVICE_ERROR`
 
-The Gateway does not currently validate the full structure of every upstream response.
+The Gateway's error handler also receives errors raised by its own body parser. For example, a malformed JSON body sent to the Gateway currently produces the parser's `400` status together with the `UPSTREAM_SERVICE_ERROR` code, because the Gateway has no dedicated handling for this case.
 
 ## 6. Internal Server Errors
 
 **HTTP Status:** `500 Internal Server Error`
 
 The Order Service and Payment Service use a generic response message for unexpected server errors.
-
-Example:
 
 ```json
 {
@@ -296,24 +291,44 @@ Centralized log collection and structured application logging will be introduced
 
 ## 7. Persistence and Data Failure Considerations
 
-The current implementation uses in-memory repositories rather than PostgreSQL.
+Orders and payments are stored in PostgreSQL (`order_db` and `payment_db`).
 
-| Service | Repository | Storage |
-|---|---|---|
-| Order Service | `InMemoryOrderRepository` | JavaScript `Map` |
-| Payment Service | `InMemoryPaymentRepository` | JavaScript `Map` |
+### 7.1 Startup Failures
 
-The current implementation does not contain PostgreSQL database connection or query error handling.
+At startup, each persistent service runs `SELECT 1` and then applies its migrations before listening.
 
-Database availability and database operation failures are therefore future considerations, not currently implemented error scenarios.
+| Condition | Behavior |
+|---|---|
+| Database unreachable (5000 ms connection timeout) | Error logged, pool closed, process exits with code `1` |
+| Migration fails | Its transaction is rolled back, the error is logged, process exits with code `1` |
 
-When PostgreSQL is introduced, database-specific error handling will be documented and implemented within each owning service.
+Under Compose, `restart: unless-stopped` restarts the container, and `depends_on` with `service_healthy` keeps dependents waiting until the service is healthy.
+
+### 7.2 Runtime Database Errors
+
+The Order and Payment Services do not map database errors to dedicated API errors. An unhandled database error reaches the error handler and results in `500`.
+
+Idle pool connection errors are logged (`Unexpected ... database error`) and do not crash the process.
+
+### 7.3 Known Behavior: Non-UUID Identifiers
+
+The `id` and `order_id` columns are `UUID`. When a value that is not a valid UUID reaches a query, PostgreSQL raises an invalid-input error (SQLSTATE `22P02`). The current error handler does not translate it, so:
+
+| Request | Result with PostgreSQL |
+|---|---|
+| `GET /orders/<non-UUID>` (also via Gateway) | `500` |
+| `GET /payments/<non-UUID>` | `500` |
+| `POST /payments` with a non-UUID `orderId` | `500` |
+
+In these cases the response body uses the generic message, and the `code` field carries the raw database error code (`22P02`) rather than `INTERNAL_SERVER_ERROR`, because the handler reuses `error.code` when present.
+
+In-memory repositories used by unit tests return `404` for the same unknown-ID requests, so this difference is visible only against a real database. Looking up a well-formed UUID that does not exist returns `404` as documented.
+
+If the Payment Service returns `500` during order creation, the Order Service treats it as a payment failure to confirm and leaves the order `PENDING` (see [5.1](#51-payment-service-unavailable)).
 
 ## 8. Order State Consistency
 
-The current application uses synchronous REST communication without distributed transactions.
-
-The following state transitions are implemented:
+The application uses synchronous REST communication without distributed transactions. An order and its payment live in two different databases and are written by two different services.
 
 | Event | Order Status | Payment Status |
 |---|---|---|
@@ -326,15 +341,17 @@ The Order Service creates the order before requesting payment processing.
 
 If payment processing throws an error, the service returns the original order without a confirmed payment ID.
 
-A failure while updating the order after a payment response may also leave the order in `PENDING`, even if the Payment Service has already created a payment record.
+The `try/catch` in the Order Service also covers the order update that follows a payment response. If that update fails, the order stays `PENDING` in `order_db` even though a payment record exists in `payment_db`. Because both databases are persistent, this mismatch survives restarts.
 
-The current implementation does not provide:
+The Payment Service does not enforce one payment per order (`order_id` is indexed, not unique), so repeated calls for the same `orderId` create additional payment rows.
+
+The implementation does not provide:
 
 - Distributed transactions.
 - Automatic payment retries.
 - Automatic reconciliation.
 - Compensation or rollback workflows.
-- Persistent storage across service restarts.
+- Idempotency keys.
 
 These limitations are important when investigating inconsistent or unknown payment outcomes.
 
@@ -345,13 +362,12 @@ These limitations are important when investigating inconsistent or unknown payme
 | API Gateway | Forward Order Service responses and handle upstream communication errors |
 | Order Service | Validate orders, coordinate payment processing, and preserve the order state when payment processing throws an error |
 | Payment Service | Validate payment requests and create payment records |
-| In-Memory Repositories | Store service-owned records during the process lifetime |
+| Repositories | Persist service-owned records in the service's own database |
+| Startup code | Fail fast when the database or migrations are unavailable |
 
 Each service is responsible for its own operations and data.
 
 ## 10. Error Handling Principles
-
-The current implementation follows these principles:
 
 - Use consistent JSON error response structures.
 - Return appropriate HTTP status codes for known errors.
@@ -359,7 +375,8 @@ The current implementation follows these principles:
 - Avoid exposing internal error details to clients.
 - Do not interpret an unknown payment outcome as a confirmed payment failure.
 - Keep order and payment data within their owning services.
+- Fail fast at startup when required dependencies are not available.
 - Avoid automatic retries in the initial implementation.
-- Test expected success and failure scenarios through API and integration tests.
+- Test expected success and failure scenarios through API, integration, and end-to-end tests.
 
 Future observability phases will extend error investigation through centralized logging, metrics, distributed tracing, and alerting.

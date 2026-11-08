@@ -4,7 +4,7 @@
 
 This document defines the HTTP API contracts for the PulseTrace application.
 
-The application currently consists of three services:
+The application consists of three services:
 
 - API Gateway
 - Order Service
@@ -12,30 +12,26 @@ The application currently consists of three services:
 
 The API Gateway exposes the public API to clients. The Order Service and Payment Service communicate through internal synchronous REST APIs.
 
-The current implementation uses in-memory repositories. PostgreSQL persistence is planned for a later development phase.
+Orders and payments are persisted in PostgreSQL, one database per service. See [Data Model](../architecture/data-model.md).
 
 ## 2. API Conventions
 
 ### Base URLs
 
-The following URLs are used by the current local development setup:
+| Service | Local (npm) | Docker Compose (inside network) | Published to host by Compose |
+|---|---|---|---|
+| API Gateway | `http://localhost:3000` | `http://api-gateway:3000` | Yes (`3000`) |
+| Order Service | `http://localhost:3001` | `http://order-service:3001` | No |
+| Payment Service | `http://localhost:3002` | `http://payment-service:3002` | No |
 
-| Service | Local Base URL |
-|---|---|
-| API Gateway | `http://localhost:3000` |
-| Order Service | `http://localhost:3001` |
-| Payment Service | `http://localhost:3002` |
+Under Docker Compose only the Gateway is reachable from the host. The internal endpoints of the Order and Payment services can only be called from inside the Compose network (for example with `docker compose exec`). When services run directly with npm, all three ports are on `localhost`.
 
 The internal clients use environment variables to configure service URLs:
 
-| Environment Variable | Default Value |
-|---|---|
-| `ORDER_SERVICE_URL` | `http://localhost:3001` |
-| `PAYMENT_SERVICE_URL` | `http://localhost:3002` |
-
-When the application is containerized, these variables can be configured to use Docker Compose service names, such as `http://order-service:3001` and `http://payment-service:3002`.
-
-These container URLs are planned configuration examples; Docker Compose networking is not part of the current implementation.
+| Environment Variable | Default Value | Compose Value |
+|---|---|---|
+| `ORDER_SERVICE_URL` | `http://localhost:3001` | `http://order-service:3001` |
+| `PAYMENT_SERVICE_URL` | `http://localhost:3002` | `http://payment-service:3002` |
 
 ### Data Format
 
@@ -75,6 +71,8 @@ The optional `simulateFailure` field is used to simulate payment outcomes during
 
 This field is a testing control, not a real payment-processing option.
 
+The Compose stack takes `NODE_ENV` from the environment. Simulation requests succeed only when the stack runs with `NODE_ENV=development` (the value in `.env.example`) and are rejected with `SIMULATION_NOT_ALLOWED` under `NODE_ENV=production`.
+
 ## 3. API Gateway
 
 The API Gateway is the public entry point for client requests. It forwards order operations to the Order Service.
@@ -82,8 +80,6 @@ The API Gateway is the public entry point for client requests. It forwards order
 ### 3.1 Health Check
 
 **Endpoint:** `GET /health`
-
-**Purpose:** Check whether the API Gateway process is running.
 
 **Success Response:** `200 OK`
 
@@ -165,7 +161,7 @@ If payment processing throws an error, the Order Service logs the error and retu
 
 | Parameter | Description |
 |---|---|
-| `id` | Order ID |
+| `id` | Order ID (UUID) |
 
 **Success Response:** `200 OK`
 
@@ -186,13 +182,13 @@ If payment processing throws an error, the Order Service logs the error and retu
 
 If the order does not exist, the Order Service returns `404 Not Found`, and the Gateway forwards that response.
 
+The `id` is not format-checked by the application. With PostgreSQL, an `id` that is not a valid UUID is rejected by the database and the request currently fails with `500`, not `404`. See [Error Handling](./error-handling.md#7-persistence-and-data-failure-considerations).
+
 ## 4. Order Service
 
-The Order Service manages order creation, retrieval, and payment coordination.
+The Order Service manages order creation, retrieval, and payment coordination. It persists orders in `order_db`.
 
-It currently uses an in-memory repository. PostgreSQL persistence is planned for a later phase.
-
-These endpoints are intended for internal service communication and should not be directly exposed to external clients.
+These endpoints are intended for internal service communication. Under Docker Compose they are not published to the host.
 
 ### 4.1 Health Check
 
@@ -207,7 +203,7 @@ These endpoints are intended for internal service communication and should not b
 }
 ```
 
-This endpoint checks whether the Order Service process is running. It does not verify Payment Service availability.
+This endpoint checks whether the Order Service process is responding. It does not query the database or verify Payment Service availability.
 
 ### 4.2 Create Order
 
@@ -232,7 +228,7 @@ The `simulateFailure` field is optional.
 
 | Field | Required | Validation |
 |---|---|---|
-| `customerId` | Yes | Non-empty string |
+| `customerId` | Yes | Non-empty string (trimmed before storage) |
 | `amount` | Yes | Positive finite number |
 | `currency` | Yes | Exactly three uppercase letters |
 | `simulateFailure` | No | Boolean; not allowed in production |
@@ -244,17 +240,16 @@ The response contains the created order using the same data structure defined in
 The Order Service follows this sequence:
 
 1. Validate the request.
-2. Create an order with `PENDING` status.
-3. Save the order in the in-memory repository.
-4. Send a payment request to the Payment Service.
-5. Update the order to `PAID` or `PAYMENT_FAILED` if a valid payment result is returned.
-6. If payment processing throws an error, log it and return the original `PENDING` order.
+2. Create an order with `PENDING` status and insert it into `order_db`.
+3. Send a payment request to the Payment Service.
+4. Update the order to `PAID` or `PAYMENT_FAILED` and store the `paymentId`.
+5. If the payment request or the update throws an error, log it and return the original `PENDING` order.
 
 ### 4.3 Get Order
 
 **Endpoint:** `GET /orders/:id`
 
-**Purpose:** Retrieve an order by its ID from the in-memory repository.
+**Purpose:** Retrieve an order by its ID from `order_db`.
 
 **Success Response:** `200 OK`
 
@@ -277,11 +272,9 @@ If the order does not exist, the service returns `404 Not Found` with the error 
 
 ## 5. Payment Service
 
-The Payment Service handles simulated payment processing and payment retrieval.
+The Payment Service handles simulated payment processing and payment retrieval. It persists payments in `payment_db`.
 
-It currently uses an in-memory repository. PostgreSQL persistence is planned for a later phase.
-
-These endpoints are intended for internal service communication and should not be directly exposed to external clients.
+These endpoints are intended for internal service communication. Under Docker Compose they are not published to the host.
 
 ### 5.1 Health Check
 
@@ -296,13 +289,13 @@ These endpoints are intended for internal service communication and should not b
 }
 ```
 
-This endpoint checks whether the Payment Service process is running.
+This endpoint checks whether the Payment Service process is responding.
 
 ### 5.2 Create Payment
 
 **Endpoint:** `POST /payments`
 
-**Purpose:** Process a simulated payment and save its result in the in-memory repository.
+**Purpose:** Process a simulated payment and save its result in `payment_db`.
 
 **Request Body:**
 
@@ -319,12 +312,12 @@ This endpoint checks whether the Payment Service process is running.
 
 | Field | Required | Validation |
 |---|---|---|
-| `orderId` | Yes | Non-empty string |
+| `orderId` | Yes | Non-empty string (trimmed before storage) |
 | `amount` | Yes | Positive finite number |
 | `currency` | Yes | Exactly three uppercase letters |
 | `simulateFailure` | No | Boolean; not allowed in production |
 
-The current implementation checks that `orderId` is a non-empty string. It does not validate the UUID format of the supplied value.
+The application checks that `orderId` is a non-empty string. The database column is `UUID`, so a value that is not a valid UUID is rejected by PostgreSQL and the request currently fails with `500`. The Payment Service does not verify that the order exists, because it has no access to `order_db`.
 
 **Success Response:** `201 Created`
 
@@ -362,7 +355,7 @@ The payment outcome is represented by the `status` field. Both successful and fa
 
 **Endpoint:** `GET /payments/:id`
 
-**Purpose:** Retrieve a payment record by its ID from the in-memory repository.
+**Purpose:** Retrieve a payment record by its ID from `payment_db`.
 
 **Success Response:** `200 OK`
 
@@ -389,45 +382,34 @@ If the payment does not exist, the service returns `404 Not Found` with the erro
 | `201` | Created | Successful order or payment creation |
 | `400` | Bad Request | Invalid request data |
 | `404` | Not Found | Unknown route or missing resource |
-| `500` | Internal Server Error | Unexpected internal service error |
+| `500` | Internal Server Error | Unexpected internal service error, including unhandled database errors |
 | `502` | Bad Gateway | Gateway fallback for an upstream request error |
 | `503` | Service Unavailable | Gateway cannot reach the Order Service |
 | `504` | Gateway Timeout | Gateway request to the Order Service timed out |
 
-The `502`, `503`, and `504` responses currently describe Gateway-to-Order communication failures. They are not returned to the client for Payment Service connection failures handled by the Order Service.
+The `502`, `503`, and `504` responses describe Gateway-to-Order communication failures. They are not returned to the client for Payment Service connection failures handled by the Order Service.
 
 ## 7. Service Communication Rules
 
 - External clients send order requests to the API Gateway.
 - The Gateway forwards order requests to the Order Service.
 - The Order Service sends payment requests to the Payment Service.
-- The Order Service owns order records.
-- The Payment Service owns payment records.
-- Each service accesses its own repository.
-- No service directly accesses another service's repository.
-- Internal service endpoints are intended to remain private.
+- The Order Service owns order records and `order_db`.
+- The Payment Service owns payment records and `payment_db`.
+- Each service connects to its own database with its own role.
+- No service directly accesses another service's database.
+- Internal service endpoints are kept private by the Compose network.
 
-## 8. Current Persistence Implementation
+## 8. Persistence
 
-The current application uses in-memory repositories:
+| Service | Database | DB Role | Repository |
+|---|---|---|---|
+| Order Service | `order_db` | `order_service` | `PostgresOrderRepository` |
+| Payment Service | `payment_db` | `payment_service` | `PostgresPaymentRepository` |
 
-| Service | Repository | Current Storage |
-|---|---|---|
-| Order Service | `InMemoryOrderRepository` | JavaScript `Map` |
-| Payment Service | `InMemoryPaymentRepository` | JavaScript `Map` |
+Both databases are hosted by a single PostgreSQL instance. Schemas are created by SQL migrations applied by each service at startup. Details are in [Data Model](../architecture/data-model.md).
 
-Records are stored in the running process memory. They are not persisted across process restarts.
-
-### Planned Database Architecture
-
-PostgreSQL is planned for a later implementation phase, with separate databases owned by each service:
-
-| Database | Owner | Purpose |
-|---|---|---|
-| `order_db` | Order Service | Store order records |
-| `payment_db` | Payment Service | Store payment records |
-
-This database architecture is a target design, not part of the current implementation.
+In-memory repositories are used only by unit and API tests.
 
 ## 9. Scope Limitations
 
@@ -436,11 +418,10 @@ The current application uses synchronous REST communication and simulated paymen
 The current implementation does not include:
 
 - Real payment provider integration.
-- PostgreSQL persistence.
 - Distributed transactions.
 - Automatic payment retries.
 - Message brokers.
 - Authentication or authorization.
 - Automatic reconciliation of orders and payments.
-
-These capabilities may be introduced in later development phases.
+- Idempotency keys.
+- Pagination or listing endpoints.
