@@ -19,6 +19,7 @@ COPY --from=dependencies /app/node_modules ./node_modules
 
 COPY services/payment-service/package.json ./services/payment-service/package.json
 COPY services/payment-service/src ./services/payment-service/src
+COPY database/migrations/payment ./database/migrations/payment
 
 USER node
 

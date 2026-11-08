@@ -19,6 +19,7 @@ COPY --from=dependencies /app/node_modules ./node_modules
 
 COPY services/order-service/package.json ./services/order-service/package.json
 COPY services/order-service/src ./services/order-service/src
+COPY database/migrations/order ./database/migrations/order
 
 USER node
 

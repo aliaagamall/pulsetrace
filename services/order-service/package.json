@@ -4,12 +4,13 @@
   "private": true,
   "main": "src/server.js",
   "scripts": {
-     "start": "node src/server.js",
-     "dev": "node --watch src/server.js",
-     "test": "node --test"
-},
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  },
   "dependencies": {
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "supertest": "^7.3.1"
