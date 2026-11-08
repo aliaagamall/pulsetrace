@@ -1,18 +1,21 @@
 const createApp = require("./app");
-const app = createApp();
+const { createLogger } = require("./config/logger");
+
+const logger = createLogger("api-gateway");
+const app = createApp({ logger });
 
 const PORT = Number(process.env.PORT) || 3000;
 
 const server = app.listen(PORT, () => {
-  console.log(`API Gateway listening on port ${PORT}`);
+  logger.info({ port: PORT }, "API Gateway listening");
 });
 
 function shutdown(signal) {
-  console.log(`${signal} received. Shutting down API Gateway.`);
+  logger.info({ signal }, "Shutting down API Gateway");
 
   server.close((error) => {
     if (error) {
-      console.error("Failed to close API Gateway:", error);
+      logger.error({ err: error }, "Failed to close API Gateway");
       process.exitCode = 1;
     }
 
