@@ -137,9 +137,7 @@ Services depend on a repository contract, not on PostgreSQL directly.
 
 ### Connection Configuration
 
-The pool takes its settings from standard `PG*` environment variables (`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`). `server.js` sets `connectionTimeoutMillis: 5000`. Pool size uses the `pg` default.
-
-`src/config/database.js` in both services defines a pool with `max: 10` and `idleTimeoutMillis: 30000`, but the running `server.js` does not import it and creates its own pool.
+The pool takes its settings from standard `PG*` environment variables (`PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`). `server.js` is the only place that creates the pool, and it sets `connectionTimeoutMillis: 5000`. Pool size (`max: 10`) and idle timeout (30 seconds) use the `pg` defaults.
 
 ## 6. Data Ownership and Access
 
