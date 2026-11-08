@@ -104,7 +104,7 @@ function createApp({
     const statusCode = error.statusCode || 502;
 
     const logError = statusCode >= 500 ? req.log.error : req.log.warn;
-    logError.call(req.log, { err: error }, "gateway error");
+    logError.call(req.log, { error }, "gateway error");
 
     res.status(statusCode).json({
       error: {

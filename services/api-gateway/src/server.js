@@ -15,7 +15,7 @@ function shutdown(signal) {
 
   server.close((error) => {
     if (error) {
-      logger.error({ err: error }, "Failed to close API Gateway");
+      logger.error({ error }, "Failed to close API Gateway");
       process.exitCode = 1;
     }
 
