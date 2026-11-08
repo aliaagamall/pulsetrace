@@ -182,7 +182,7 @@ If payment processing throws an error, the Order Service logs the error and retu
 
 If the order does not exist, the Order Service returns `404 Not Found`, and the Gateway forwards that response.
 
-The `id` is not format-checked by the application. With PostgreSQL, an `id` that is not a valid UUID is rejected by the database and the request currently fails with `500`, not `404`. See [Error Handling](./error-handling.md#7-persistence-and-data-failure-considerations).
+An `id` that is not a valid UUID also returns `404 ORDER_NOT_FOUND`, because it cannot match any stored order. See [Error Handling](./error-handling.md#73-malformed-identifiers).
 
 ## 4. Order Service
 
@@ -312,12 +312,12 @@ This endpoint checks whether the Payment Service process is responding.
 
 | Field | Required | Validation |
 |---|---|---|
-| `orderId` | Yes | Non-empty string (trimmed before storage) |
+| `orderId` | Yes | UUID string (trimmed before storage) |
 | `amount` | Yes | Positive finite number |
 | `currency` | Yes | Exactly three uppercase letters |
 | `simulateFailure` | No | Boolean; not allowed in production |
 
-The application checks that `orderId` is a non-empty string. The database column is `UUID`, so a value that is not a valid UUID is rejected by PostgreSQL and the request currently fails with `500`. The Payment Service does not verify that the order exists, because it has no access to `order_db`.
+A value that is not a valid UUID is rejected with `400 INVALID_ORDER_ID`. The Payment Service does not verify that the order exists, because it has no access to `order_db`.
 
 **Success Response:** `201 Created`
 
@@ -372,7 +372,7 @@ The payment outcome is represented by the `status` field. Both successful and fa
 }
 ```
 
-If the payment does not exist, the service returns `404 Not Found` with the error code `PAYMENT_NOT_FOUND`.
+If the payment does not exist, or the `id` is not a valid UUID, the service returns `404 Not Found` with the error code `PAYMENT_NOT_FOUND`.
 
 ## 6. HTTP Status Codes
 

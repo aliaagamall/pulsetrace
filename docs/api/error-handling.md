@@ -106,13 +106,13 @@ Example:
 | Error Code | Condition |
 |---|---|
 | `INVALID_REQUEST_BODY` | Request body is not a valid JSON object, or JSON parsing failed |
-| `INVALID_ORDER_ID` | `orderId` is missing, empty, or not a string |
+| `INVALID_ORDER_ID` | `orderId` is missing, not a string, or not a valid UUID |
 | `INVALID_AMOUNT` | Amount is not a positive finite number |
 | `INVALID_CURRENCY` | Currency does not contain exactly three uppercase letters |
 | `INVALID_SIMULATION_FLAG` | `simulateFailure` is not a boolean |
 | `SIMULATION_NOT_ALLOWED` | `simulateFailure` is supplied in production |
 
-The Payment Service validates `orderId` as a non-empty string at the application level. The database column is `UUID` (see [section 7](#7-persistence-and-data-failure-considerations)).
+The Payment Service requires `orderId` to be a UUID, matching the type of the database column. It does not verify that the order exists, because it has no access to `order_db`.
 
 The currency validation checks the three-uppercase-letter format. It does not verify whether the value is an officially assigned ISO 4217 currency code.
 
@@ -122,8 +122,10 @@ The currency validation checks the three-uppercase-letter format. It does not ve
 
 | Service | Error Code | Condition |
 |---|---|---|
-| Order Service | `ORDER_NOT_FOUND` | Requested order does not exist |
-| Payment Service | `PAYMENT_NOT_FOUND` | Requested payment does not exist |
+| Order Service | `ORDER_NOT_FOUND` | Requested order does not exist, or the ID is not a valid UUID |
+| Payment Service | `PAYMENT_NOT_FOUND` | Requested payment does not exist, or the ID is not a valid UUID |
+
+A malformed ID can never match a stored record, so lookups return `404` without querying the database (see [7.3](#73-malformed-identifiers)).
 
 Example:
 
@@ -285,6 +287,16 @@ For unexpected errors:
 - The client receives a generic message.
 - Internal stack traces are not included in the response.
 
+The error handler of the Order and Payment Services decides the response `code` as follows:
+
+| Error | Status | `code` |
+|---|---|---|
+| Application error (`AppError`) | Its own status | Its own code |
+| Other client-side error (for example malformed JSON) | `4xx` | `INVALID_REQUEST_BODY` |
+| Any error with status `5xx`, including database errors | `5xx` | `INTERNAL_SERVER_ERROR` |
+
+Error codes from libraries or from PostgreSQL are never copied into the response.
+
 The Gateway uses its own fallback error handling and does not expose the original error object.
 
 Centralized log collection and structured application logging will be introduced in later observability phases.
@@ -306,25 +318,23 @@ Under Compose, `restart: unless-stopped` restarts the container, and `depends_on
 
 ### 7.2 Runtime Database Errors
 
-The Order and Payment Services do not map database errors to dedicated API errors. An unhandled database error reaches the error handler and results in `500`.
+The Order and Payment Services do not map database errors to dedicated API errors. An unhandled database error reaches the error handler and results in `500` with the generic `INTERNAL_SERVER_ERROR` code.
 
 Idle pool connection errors are logged (`Unexpected ... database error`) and do not crash the process.
 
-### 7.3 Known Behavior: Non-UUID Identifiers
+### 7.3 Malformed Identifiers
 
-The `id` and `order_id` columns are `UUID`. When a value that is not a valid UUID reaches a query, PostgreSQL raises an invalid-input error (SQLSTATE `22P02`). The current error handler does not translate it, so:
+The `id` and `order_id` columns are `UUID`. A value that is not a valid UUID would make PostgreSQL raise an invalid-input error, so the services check the format before querying:
 
-| Request | Result with PostgreSQL |
+| Request | Result |
 |---|---|
-| `GET /orders/<non-UUID>` (also via Gateway) | `500` |
-| `GET /payments/<non-UUID>` | `500` |
-| `POST /payments` with a non-UUID `orderId` | `500` |
+| `GET /orders/<non-UUID>` (also via Gateway) | `404 ORDER_NOT_FOUND` |
+| `GET /payments/<non-UUID>` | `404 PAYMENT_NOT_FOUND` |
+| `POST /payments` with a non-UUID `orderId` | `400 INVALID_ORDER_ID` |
 
-In these cases the response body uses the generic message, and the `code` field carries the raw database error code (`22P02`) rather than `INTERNAL_SERVER_ERROR`, because the handler reuses `error.code` when present.
+These checks use the same behavior with the PostgreSQL and in-memory repositories, so unit tests and the running stack agree. Looking up a well-formed UUID that does not exist also returns `404`.
 
-In-memory repositories used by unit tests return `404` for the same unknown-ID requests, so this difference is visible only against a real database. Looking up a well-formed UUID that does not exist returns `404` as documented.
-
-If the Payment Service returns `500` during order creation, the Order Service treats it as a payment failure to confirm and leaves the order `PENDING` (see [5.1](#51-payment-service-unavailable)).
+An order created through the Order Service always carries a generated UUID, so the `INVALID_ORDER_ID` check only affects direct calls to the Payment Service.
 
 ## 8. Order State Consistency
 

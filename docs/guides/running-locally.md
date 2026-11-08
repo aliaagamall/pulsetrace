@@ -114,10 +114,10 @@ Services listen on `3000`, `3001`, and `3002` of `localhost`, and the default cl
 | `order-service` restarts, logs show authentication failure | Passwords in `.env` changed after the first start; roles keep the old password | `docker compose down -v` (deletes data), or `ALTER ROLE` inside PostgreSQL |
 | `order-service` waits or is unhealthy | `payment-service` or `postgres` not healthy yet | `docker compose ps`, then check `docker compose logs <service>` |
 | `400 SIMULATION_NOT_ALLOWED` | Stack runs with `NODE_ENV=production` | Set `NODE_ENV=development`, then recreate the app containers |
-| `GET /api/orders/<text>` returns `500` | Non-UUID id reaches a UUID column | Use a UUID; see [Error Handling](../api/error-handling.md#73-known-behavior-non-uuid-identifiers) |
+| `404 ORDER_NOT_FOUND` for an ID you just copied | The ID is not a complete UUID, or the order was created before `docker compose down -v` | Check the full ID; see [Error Handling](../api/error-handling.md#73-malformed-identifiers) |
 | Order stays `PENDING` | Payment call failed or timed out | Check `payment-service` logs; see [Request Flow](../architecture/request-flow.md#payment-service-failure) |
 
 ## 5. Next Steps
 
-- Run the tests: [Testing](../testing/testing.md)
+- Run the tests: [Testing](testing.md)
 - Understand the containers: [Deployment](../architecture/deployment.md)

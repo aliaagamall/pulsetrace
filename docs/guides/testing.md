@@ -38,7 +38,7 @@ npm test --workspace=@pulsetrace/order-service
 npm test --workspaces
 ```
 
-These tests do not touch PostgreSQL. Behavior that depends on the database (for example UUID handling) is covered only by the layers below.
+These tests do not touch PostgreSQL. Behavior that depends on the database (for example constraints, persistence, and migrations) is covered only by the layers below. Malformed-ID handling (`404` for lookups, `400 INVALID_ORDER_ID`) is checked in these unit tests because the services validate the UUID format before reaching the repository.
 
 ## 3. End-to-End Tests
 
@@ -128,7 +128,8 @@ Each report contains a summary and a per-check result table. Both scripts exit n
 
 ## 8. Current Gaps
 
-- No automated test exercises the `22P02` non-UUID behavior described in [Error Handling](../api/error-handling.md#73-known-behavior-non-uuid-identifiers).
+- The PostgreSQL integration test does not include a malformed-ID check. That behavior is verified by unit tests and was checked manually against the running stack.
+- No automated test checks that database error codes are hidden from responses.
 - No test covers a payment that succeeds while the following order update fails.
 - Tests are run manually. CI automation with GitHub Actions is planned.
 - The test count (`TOTAL=22`) in the PostgreSQL script is a constant and must be updated when checks are added.

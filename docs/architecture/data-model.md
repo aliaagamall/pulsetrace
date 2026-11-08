@@ -83,7 +83,7 @@ Rules are enforced twice: in the service's validation code and again as database
 | Amount is positive | Yes | `CHECK (amount > 0)` |
 | Currency is three uppercase letters | Yes | `CHECK (currency ~ '^[A-Z]{3}$')` |
 | Status is one of the allowed values | Set by code | `CHECK (status IN (...))` |
-| IDs are UUIDs | Generated with `randomUUID()`, lookup IDs not checked | `UUID` type |
+| IDs are UUIDs | Generated with `randomUUID()`, lookup IDs and the payment `orderId` checked for UUID format | `UUID` type |
 
 ## 4. Migrations
 
