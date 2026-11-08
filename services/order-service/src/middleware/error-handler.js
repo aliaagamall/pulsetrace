@@ -4,26 +4,28 @@ function errorHandler(error, req, res, next) {
   }
 
   const statusCode = error.statusCode || error.status || 500;
+  const isServerError = statusCode >= 500;
 
-  let code = error.code || "INTERNAL_SERVER_ERROR";
+  let code;
 
-  if (statusCode === 400 && !error.code) {
+  if (isServerError) {
+    code = "INTERNAL_SERVER_ERROR";
+  } else if (error.isOperational) {
+    code = error.code;
+  } else {
     code = "INVALID_REQUEST_BODY";
   }
 
-  const message =
-    statusCode >= 500
-      ? "An unexpected error occurred."
-      : error.message;
-
-  if (statusCode >= 500) {
+  if (isServerError) {
     console.error(error);
   }
 
   res.status(statusCode).json({
     error: {
       code,
-      message: message || "Invalid request."
+      message: isServerError
+        ? "An unexpected error occurred."
+        : error.message || "Invalid request."
     }
   });
 }

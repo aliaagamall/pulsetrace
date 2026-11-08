@@ -1,7 +1,7 @@
-
 const { randomUUID } = require("node:crypto");
 const AppError = require("../errors/app-error");
 const PaymentClient = require("../clients/payment.client");
+const { isUuid } = require("../utils/uuid");
 
 class OrderService {
   constructor(orderRepository, paymentClient = new PaymentClient()) {
@@ -81,6 +81,11 @@ class OrderService {
   }
 
   async getOrderById(id) {
+    // A malformed ID can never match a stored order.
+    if (!isUuid(id)) {
+      throw new AppError(404, "ORDER_NOT_FOUND", "Order was not found.");
+    }
+
     const order = await this.orderRepository.findById(id);
 
     if (!order) {

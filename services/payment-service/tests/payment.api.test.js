@@ -6,19 +6,22 @@ const createApp = require("../src/app");
 
 process.env.NODE_ENV = "test";
 
+const ORDER_ID = "6f1c2a3e-8b4d-4e5f-9a7b-1c2d3e4f5a6b";
+const UNKNOWN_ID = "00000000-0000-4000-8000-000000000000";
+
 test("POST /payments creates a successful payment", async () => {
   const app = createApp();
 
   const response = await request(app)
     .post("/payments")
     .send({
-      orderId: "order-123",
+      orderId: ORDER_ID,
       amount: 1500,
       currency: "EGP"
     });
 
   assert.equal(response.status, 201);
-  assert.equal(response.body.data.orderId, "order-123");
+  assert.equal(response.body.data.orderId, ORDER_ID);
   assert.equal(response.body.data.amount, 1500);
   assert.equal(response.body.data.currency, "EGP");
   assert.equal(response.body.data.status, "SUCCEEDED");
@@ -31,7 +34,7 @@ test("POST /payments supports simulated payment failure", async () => {
   const response = await request(app)
     .post("/payments")
     .send({
-      orderId: "order-456",
+      orderId: ORDER_ID,
       amount: 750,
       currency: "EGP",
       simulateFailure: true
@@ -47,7 +50,7 @@ test("POST /payments rejects an invalid amount", async () => {
   const response = await request(app)
     .post("/payments")
     .send({
-      orderId: "order-789",
+      orderId: ORDER_ID,
       amount: -100,
       currency: "EGP"
     });
@@ -56,13 +59,28 @@ test("POST /payments rejects an invalid amount", async () => {
   assert.equal(response.body.error.code, "INVALID_AMOUNT");
 });
 
+test("POST /payments rejects an orderId that is not a UUID", async () => {
+  const app = createApp();
+
+  const response = await request(app)
+    .post("/payments")
+    .send({
+      orderId: "order-123",
+      amount: 1500,
+      currency: "EGP"
+    });
+
+  assert.equal(response.status, 400);
+  assert.equal(response.body.error.code, "INVALID_ORDER_ID");
+});
+
 test("GET /payments/:id returns an existing payment", async () => {
   const app = createApp();
 
   const createResponse = await request(app)
     .post("/payments")
     .send({
-      orderId: "order-123",
+      orderId: ORDER_ID,
       amount: 1500,
       currency: "EGP"
     });
@@ -80,7 +98,17 @@ test("GET /payments/:id returns 404 for an unknown payment", async () => {
   const app = createApp();
 
   const response = await request(app)
-    .get("/payments/non-existent-id");
+    .get(`/payments/${UNKNOWN_ID}`);
+
+  assert.equal(response.status, 404);
+  assert.equal(response.body.error.code, "PAYMENT_NOT_FOUND");
+});
+
+test("GET /payments/:id returns 404 for a malformed payment ID", async () => {
+  const app = createApp();
+
+  const response = await request(app)
+    .get("/payments/not-a-uuid");
 
   assert.equal(response.status, 404);
   assert.equal(response.body.error.code, "PAYMENT_NOT_FOUND");
@@ -97,7 +125,7 @@ test("POST /payments rejects payment simulation in production", async () => {
     const response = await request(app)
       .post("/payments")
       .send({
-        orderId: "order-123",
+        orderId: ORDER_ID,
         amount: 1500,
         currency: "EGP",
         simulateFailure: true
