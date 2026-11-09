@@ -5,11 +5,14 @@ const PaymentService = require("./services/payment.service");
 const createPaymentRouter = require("./routes/payment.routes");
 const errorHandler = require("./middleware/error-handler");
 const { createLogger } = require("./config/logger");
+const { createMetrics } = require("./config/metrics");
 const { resolveRequestId } = require("./middleware/request-id");
+const metricsMiddleware = require("./middleware/metrics");
 
 function createApp({
   paymentRepository = new InMemoryPaymentRepository(),
-  logger = createLogger("payment-service")
+  logger = createLogger("payment-service"),
+  metrics = createMetrics("payment-service")
 } = {}) {
   const app = express();
 
@@ -20,9 +23,9 @@ function createApp({
     pinoHttp({
       logger,
       genReqId: resolveRequestId,
-      // Health checks run every few seconds, so they are not logged.
+      // Health checks and metric scrapes run every few seconds, so they are not logged.
       autoLogging: {
-        ignore: (req) => req.url === "/health"
+        ignore: (req) => req.url === "/health" || req.url === "/metrics"
       },
       customLogLevel: (req, res, error) => {
         if (error || res.statusCode >= 500) return "error";
@@ -49,6 +52,8 @@ function createApp({
     })
   );
 
+  app.use(metricsMiddleware(metrics));
+
   app.use(express.json({ limit: "10kb" }));
 
   app.get("/health", (req, res) => {
@@ -58,7 +63,17 @@ function createApp({
     });
   });
 
-  app.use("/payments", createPaymentRouter(paymentService));
+  // Prometheus scrapes this endpoint.
+  app.get("/metrics", async (req, res, next) => {
+    try {
+      res.set("Content-Type", metrics.registry.contentType);
+      res.send(await metrics.registry.metrics());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.use("/payments", createPaymentRouter(paymentService, metrics));
 
   app.use((req, res) => {
     res.status(404).json({
