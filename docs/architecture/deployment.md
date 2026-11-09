@@ -13,6 +13,8 @@ PulseTrace runs as four containers defined in `docker-compose.yaml` (project nam
 
 All containers share one user-defined bridge network, `pulsetrace-network`. PostgreSQL data lives in the named volume `postgres-data`.
 
+The monitoring stack (Prometheus and Grafana) is defined in a second file, `docker-compose.observability.yaml`, and is described in [section 10](#10-observability-stack).
+
 ## 2. Topology
 
 ```mermaid
@@ -102,6 +104,7 @@ Compose reads variables from `.env` (copied from `.env.example`). Variables mark
 | `POSTGRES_PASSWORD` | `postgres` | Password of the admin role `pulsetrace_admin` |
 | `ORDER_DB_PASSWORD` | `postgres`, `order-service` | Password of role `order_service` |
 | `PAYMENT_DB_PASSWORD` | `postgres`, `payment-service` | Password of role `payment_service` |
+| `GRAFANA_ADMIN_PASSWORD` | `grafana` (observability file only) | Password of the Grafana `admin` user |
 
 Variables set in the shell take precedence over `.env`. The Docker Compose test script depends on this (`export NODE_ENV=production`).
 
@@ -118,6 +121,10 @@ Per-service environment set in Compose:
 ### Logging
 
 The three application services write structured JSON logs to standard output, which Docker stores and `docker compose logs` reads. `LOG_LEVEL` (default `info`) sets the minimum level. Compose does not set it, so containers use the default. See [Observability](./observability.md).
+
+### Metrics
+
+Each application service exposes `GET /metrics` in Prometheus format. Prometheus reads it over the Compose network, so the Order and Payment ports stay private. See [Observability](./observability.md#8-metrics-design).
 
 ## 7. Database Bootstrap
 
@@ -155,3 +162,58 @@ Consequences of the "runs once" behavior:
 - Logs are kept only in Docker's container logs. No collection or rotation is configured.
 - Order and Payment endpoints are not published to the host, so tests that call ports 3001 and 3002 directly work only when services run with npm.
 - Kubernetes manifests and CI/CD are planned and not part of the current deployment.
+- The observability stack is not started by default. It needs the second Compose file (see [section 10](#10-observability-stack)).
+
+## 10. Observability Stack
+
+`docker-compose.observability.yaml` adds two containers to the application network. It is a separate file so the application stack and its test scripts (which call `docker compose` without `-f`) work as before.
+
+| Container | Image | Port | Published | Health check |
+|---|---|---|---|---|
+| `prometheus` | `prom/prometheus:v3.5.0` | 9090 | `9090:9090` | `GET /-/healthy` |
+| `grafana` | `grafana/grafana:12.1.0` | 3000 | `3003:3000` | `GET /api/health` |
+
+Grafana uses host port `3003` because `3000` belongs to the Gateway.
+
+`````mermaid
+flowchart LR
+    Host["Host machine"] -->|"localhost:3000"| GW
+    Host -->|"localhost:9090"| PROM
+    Host -->|"localhost:3003"| GRAF
+
+    subgraph Net["pulsetrace-network (bridge)"]
+        GW["api-gateway :3000"]
+        ORD["order-service :3001"]
+        PAY["payment-service :3002"]
+        PROM["prometheus :9090"]
+        GRAF["grafana :3000"]
+    end
+
+    PROM -->|"scrape /metrics every 10 s"| GW
+    PROM -->|"scrape /metrics"| ORD
+    PROM -->|"scrape /metrics"| PAY
+    GRAF -->|"query"| PROM
+`````
+
+Rules:
+
+- The application network is declared `external` with the name `pulsetrace_pulsetrace-network`, so **the application stack must be running first**.
+- Start both files together:
+
+`````bash
+export NODE_ENV=development
+docker compose -f docker-compose.yaml -f docker-compose.observability.yaml up -d --build --wait
+`````
+
+- Grafana starts only after Prometheus is healthy (`depends_on` with `service_healthy`).
+- Configuration lives in files under `observability/`:
+
+| File | Purpose |
+|---|---|
+| `observability/prometheus/prometheus.yml` | Scrape targets and interval |
+| `observability/grafana/provisioning/datasources/datasources.yml` | Prometheus data source |
+| `observability/grafana/provisioning/dashboards/dashboards.yml` | Where Grafana loads dashboards from |
+| `observability/grafana/dashboards/pulsetrace-overview.json` | The dashboard |
+
+- Data lives in the named volumes `prometheus-data` (7 days of metrics) and `grafana-data`.
+- Stopping only the application (`docker compose down`) leaves Prometheus and Grafana running, but they report the services as down until the application returns.

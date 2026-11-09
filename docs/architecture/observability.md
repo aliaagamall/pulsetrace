@@ -9,12 +9,14 @@ PulseTrace builds observability in stages. Each stage is implemented, tested, an
 | Structured JSON logging | Implemented | Pino, one logger per service |
 | Request ID correlation across services | Implemented | `x-request-id` header |
 | Logging correlation test | Implemented | `tests/logging-correlation-test.sh` |
-| Metrics (Prometheus, Grafana) | Planned | |
+| Metrics (Prometheus) | Implemented | `/metrics` on every service, scraped every 10 s |
+| Dashboards (Grafana) | Implemented | Provisioned from files |
+| Metrics test | Implemented | `tests/metrics-test.sh` |
 | Distributed tracing (OpenTelemetry, Jaeger) | Planned | |
 | Centralized logging (Fluent Bit, Loki) | Planned | |
 | Alerting (Alertmanager) | Planned | |
 
-This document describes what is implemented today: structured logs and request ID correlation. Planned capabilities are listed in [section 9](#9-roadmap).
+This document describes what is implemented today: structured logs, request ID correlation, metrics, and the Grafana dashboard. Planned capabilities are listed in [section 14](#14-roadmap).
 
 ## 2. Logging Design
 
@@ -142,7 +144,7 @@ The minimum level comes from the `LOG_LEVEL` environment variable (default `info
 
 `customerId` and amounts are request data, so they are not written to logs. The correlation test checks this.
 
-`GET /health` requests are not logged. Compose calls them every few seconds, and they would hide real traffic.
+`GET /health` and `GET /metrics` requests are not logged. Compose and Prometheus call them every few seconds, and they would hide real traffic.
 
 ## 6. Error Logging
 
@@ -194,24 +196,152 @@ More queries:
 | Slow requests (over 500 ms) | `docker compose logs --no-log-prefix api-gateway \| jq -R -c 'fromjson? \| select(.responseTime > 500)'` |
 | Failed payments | `docker compose logs --no-log-prefix payment-service \| jq -R -c 'fromjson? \| select(.status == "FAILED")'` |
 
-## 8. Testing
+## 8. Metrics Design
 
-`tests/logging-correlation-test.sh` checks the running stack with 13 checks: the supplied ID is returned, the same ID is logged by all three services, a generated ID is returned when none is supplied, unsafe IDs are replaced, failed payments are logged, health checks are not logged, and request data never reaches the logs. See [Testing](../guides/testing.md#6-logging-correlation-test).
+Logs explain what happened to one request. Metrics show the overall picture over time: how many requests per second, how many failed, and how slow the slowest 5% are.
 
-## 9. Roadmap
+```mermaid
+flowchart LR
+    GW["api-gateway :3000/metrics"] --> P["Prometheus :9090<br/>scrapes every 10 s"]
+    ORD["order-service :3001/metrics"] --> P
+    PAY["payment-service :3002/metrics"] --> P
+    P --> G["Grafana :3003<br/>PulseTrace Overview"]
+```
+
+| Component | Where | Responsibility |
+|---|---|---|
+| `config/metrics.js` | Each service | Creates a registry per app and defines the metrics |
+| `middleware/metrics.js` | Each service | Counts and times every request after the response is sent |
+| `GET /metrics` | Each service | Exposes the registry in Prometheus text format |
+
+Each `createApp()` call creates its own registry, so unit tests never register the same metric twice. Every metric carries a `service` label.
+
+### Metrics
+
+| Metric | Type | Labels | Service |
+|---|---|---|---|
+| `http_requests_total` | Counter | `method`, `route`, `status_code` | All |
+| `http_request_duration_seconds` | Histogram | `method`, `route`, `status_code` | All |
+| `orders_created_total` | Counter | `status` | Order |
+| `payments_processed_total` | Counter | `status` | Payment |
+| `gateway_upstream_errors_total` | Counter | `code` | Gateway |
+| `process_*`, `nodejs_*` | Default | none | All (from `prom-client`) |
+
+The histogram buckets are 5 ms, 10 ms, 25 ms, 50 ms, 100 ms, 250 ms, 500 ms, 1 s, 2.5 s, and 5 s.
+
+The error rate is not a metric of its own. It is calculated in Prometheus from `http_requests_total` with `status_code=~"5.."`, so nothing is stored twice.
+
+### Route Label Rule
+
+The `route` label holds the route pattern, never the real path.
+
+| Request | `route` label |
+|---|---|
+| `GET /api/orders/ea0811ff-...` | `/api/orders/:id` |
+| `POST /orders` | `/orders` |
+| `GET /payments/<id>` | `/payments/:id` |
+| A path no route matches | `unmatched` |
+
+A real path would create a new time series for every order, which makes Prometheus slow and large (a cardinality explosion). The pattern keeps the number of series fixed.
+
+Express resets `req.baseUrl` when an error is thrown, so a lookup that ends in a `404` would lose its router prefix. The Order and Payment routers store the mount path in `res.locals.routeBase` before the controller runs, and the metrics middleware reads it.
+
+### What Is Not Counted
+
+`GET /health` and `GET /metrics` are not counted and not logged. Probes would hide real traffic.
+
+## 9. Prometheus
+
+Prometheus runs from `docker-compose.observability.yaml`, a separate Compose file, so the application stack and its test scripts stay unchanged.
+
+| Property | Value |
+|---|---|
+| Image | `prom/prometheus:v3.5.0` |
+| Port | `9090` (published to the host) |
+| Config | `observability/prometheus/prometheus.yml` |
+| Scrape interval | 10 s |
+| Retention | 7 days |
+| Storage | Named volume `prometheus-data` |
+
+It joins the existing application network and reaches the services by Compose name (`api-gateway:3000`, `order-service:3001`, `payment-service:3002`). The Order and Payment ports stay private. The targets are visible at `http://localhost:9090/targets`.
+
+Counters restart from zero when a container restarts. `rate()` and `increase()` handle this correctly, but a raw counter value drops after a restart.
+
+## 10. Grafana
+
+Grafana runs from the same observability Compose file and is configured entirely from files, so nothing is set up by hand in the UI.
+
+| Property | Value |
+|---|---|
+| Image | `grafana/grafana:12.1.0` |
+| Port | `3003` on the host (`3000` is used by the Gateway) |
+| Login | User `admin`, password from `GRAFANA_ADMIN_PASSWORD` in `.env` |
+| Data source | `observability/grafana/provisioning/datasources/datasources.yml` |
+| Dashboard provider | `observability/grafana/provisioning/dashboards/dashboards.yml` |
+| Dashboard | `observability/grafana/dashboards/pulsetrace-overview.json` |
+
+The dashboard file is reloaded every 30 seconds and cannot be edited from the UI (`allowUiUpdates: false`). To change a panel, edit the JSON file.
+
+## 11. PulseTrace Overview Dashboard
+
+| Row | Panels |
+|---|---|
+| Key numbers | Services up, Request rate, Error rate (5xx), p95 latency, Orders PAID, Payments FAILED |
+| Traffic | Request rate by service, Requests by status code |
+| Latency | p95 latency by service, Gateway latency percentiles (p50, p95, p99) |
+| Business | Orders by status, Payments by status |
+| Health | Gateway upstream errors, Event loop lag |
+
+Some panels are empty until the matching event happens:
+
+- **Gateway upstream errors** has data only after the Gateway fails to reach the Order Service. Normal traffic produces no such errors.
+- **Orders by status** shows `PENDING` only after a payment failure that the Order Service could not complete, for example when the Payment Service is stopped.
+
+`scripts/generate-traffic.sh` produces normal traffic, `PENDING` orders, and upstream errors, so every panel has data. Set the time range to the last 15 minutes after running it.
+
+The error rate uses a 5 minute window and shows `0%` when there is no traffic. A 1 minute window made the panel turn red from a single failed request after the traffic stopped.
+
+## 12. Useful Queries
+
+| Goal | PromQL |
+|---|---|
+| Request rate per service | `sum(rate(http_requests_total[1m])) by (service)` |
+| Error rate of the Gateway | `sum(rate(http_requests_total{service="api-gateway",status_code=~"5.."}[5m])) / sum(rate(http_requests_total{service="api-gateway"}[5m]))` |
+| p95 latency of the Gateway | `histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service="api-gateway"}[5m])) by (le))` |
+| Orders by status | `sum(orders_created_total) by (status)` |
+| Upstream errors by code | `sum(gateway_upstream_errors_total) by (code)` |
+
+Run a query from the terminal without opening Grafana:
+
+```bash
+curl -s --data-urlencode 'query=sum(orders_created_total) by (status)' \
+  http://localhost:9090/api/v1/query | jq -c '.data.result[] | {status: .metric.status, value: .value[1]}'
+```
+
+## 13. Testing
+
+- `tests/logging-correlation-test.sh` checks the running stack with 13 checks: the supplied ID is returned, the same ID is logged by all three services, a generated ID is returned when none is supplied, unsafe IDs are replaced, failed payments are logged, health checks are not logged, and request data never reaches the logs. See [Testing](../guides/testing.md#6-logging-correlation-test).
+- `tests/metrics-test.sh` checks the observability stack with 15 checks: Prometheus targets, the `/metrics` endpoints, order and payment counters after real requests, route labels without IDs, probes missing from metrics and logs, Grafana provisioning, and every dashboard query. See [Testing](../guides/testing.md#7-metrics-test).
+- The unit tests of each service cover the `/metrics` endpoint, the route label, and the business counters.
+
+## 14. Roadmap
 
 | Phase | Adds | Builds on |
 |---|---|---|
-| Metrics | Prometheus metrics per service and a Grafana dashboard | Request fields already logged |
 | Tracing | OpenTelemetry and Jaeger, with trace and span IDs in the logs | Request ID stays next to the trace ID |
 | Centralized logging | Fluent Bit and Loki, queried from Grafana | JSON log format |
 | Alerting | Prometheus alert rules and Alertmanager | Metrics |
 
-## 10. Known Limitations
+## 15. Known Limitations
 
 - Logs exist only in Docker's container logs. They are not collected, rotated, or searchable across restarts until Loki is added.
 - The request ID is per HTTP request. It is not a trace ID, and it does not show timing inside a service.
 - When a client disconnects before the response is sent, `pino-http` still logs the request with the default status `200`.
-- `responseTime` uses the system clock. If the clock jumps (for example WSL2 after the host sleeps), a value can be negative.
+- `responseTime` in the logs uses the system clock. If the clock jumps (for example WSL2 after the host sleeps), a value can be negative. The metrics histogram uses a monotonic timer and is not affected.
 - Stack traces are logged in full. This is acceptable for local development, not for production.
 - A payment timeout is logged as an `AbortError` with the message `This operation was aborted`. See [Error Handling](../api/error-handling.md#52-payment-service-timeout).
+- `/metrics` of the Gateway is reachable from the host on port `3000`, without authentication, because the Gateway is the only published service. This is acceptable for local development.
+- Counters restart from zero when a container restarts, and old time series stay in Prometheus for 7 days. Old route labels from earlier versions can therefore appear in queries.
+- Metrics are scraped every 10 seconds, so a very short spike can be missed.
+- Prometheus and Grafana data live in named volumes. `docker compose down -v` deletes them together with the database volume.
+- There are no alerts yet. A failing service is visible on the dashboard but nothing notifies anyone.

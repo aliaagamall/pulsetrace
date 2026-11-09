@@ -1,6 +1,6 @@
 # PulseTrace
 
-A local-first microservices platform built with Node.js, Express, and PostgreSQL, containerized with Docker Compose.
+Microservices platform built with Node.js, Express, and PostgreSQL, containerized with Docker Compose.
 
 ## Overview
 
@@ -10,7 +10,7 @@ Observability capabilities will be introduced progressively throughout the proje
 
 ## Project Status
 
-The application layer, persistence, containerization, and structured logging are complete. Metrics, tracing, centralized logging, alerting, orchestration, and CI/CD are planned.
+The application layer, persistence, containerization, structured logging, and metrics with a Grafana dashboard are complete. Tracing, centralized logging, alerting, orchestration, and CI/CD are planned.
 
 | Area | Status |
 |---|---|
@@ -18,8 +18,9 @@ The application layer, persistence, containerization, and structured logging are
 | PostgreSQL persistence (database per service) with SQL migrations | Implemented |
 | Docker images and Docker Compose stack with health checks | Implemented |
 | Structured JSON logging with request ID correlation across services | Implemented |
-| Unit/API, end-to-end, Docker/PostgreSQL integration, and logging correlation tests | Implemented |
-| Metrics, tracing, centralized logging, alerting | Planned |
+| Prometheus metrics from every service and a provisioned Grafana dashboard | Implemented |
+| Unit/API, end-to-end, Docker/PostgreSQL integration, logging correlation, and metrics tests | Implemented |
+| Tracing, centralized logging, alerting | Planned |
 | Kubernetes, GitHub Actions | Planned |
 
 ## Architecture at a Glance
@@ -62,7 +63,15 @@ docker compose logs --no-log-prefix api-gateway order-service payment-service \
   | jq -R -c 'fromjson? | select(.req.id == "demo-1") | {time, service, msg}'
 ```
 
-See [Running Locally](docs/guides/running-locally.md) for the full workflow and [Observability](docs/architecture/observability.md) for the log format.
+Start the monitoring stack (Prometheus and Grafana) next to the application:
+
+```bash
+docker compose -f docker-compose.yaml -f docker-compose.observability.yaml up -d --build --wait
+```
+
+Open Grafana at `http://localhost:3003` (user `admin`, password `GRAFANA_ADMIN_PASSWORD` from `.env`) and Prometheus at `http://localhost:9090`.
+
+See [Running Locally](docs/guides/running-locally.md) for the full workflow and [Observability](docs/architecture/observability.md) for the log format, metrics, and dashboard.
 
 ## Technology Stack
 
@@ -72,11 +81,11 @@ Implemented:
 - PostgreSQL 17
 - Docker and Docker Compose
 - Pino (structured JSON logging)
+- prom-client, Prometheus, and Grafana
 - Node.js test runner and Supertest
 
 Planned:
 
-- Prometheus and Grafana
 - Loki and Fluent Bit
 - OpenTelemetry and Jaeger
 - Alertmanager

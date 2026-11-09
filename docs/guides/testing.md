@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-PulseTrace has five test layers. Lower layers are fast and need nothing running; higher layers exercise the real containers and database.
+PulseTrace has six test layers. Lower layers are fast and need nothing running; higher layers exercise the real containers and database.
 
 ```mermaid
 flowchart BT
@@ -19,6 +19,8 @@ flowchart BT
 | Compose test | `tests/docker-compose-test.sh` | Bash | Yes (Compose stack) | Yes |
 | PostgreSQL integration | `tests/postgres-integration-test.sh` | Bash | Starts/recreates it | Yes |
 | Logging correlation | `tests/logging-correlation-test.sh` | Bash | Yes (Compose stack) | Yes |
+| Metrics | `tests/metrics-test.sh` | Bash | Yes (both Compose files) | Yes |
+| Metrics | `tests/metrics-test.sh` | Bash | Yes (both Compose files) | Yes |
 
 ## 2. Unit and API Tests
 
@@ -29,6 +31,8 @@ Each service builds its app with `createApp()` and injects test doubles, so the 
 | API Gateway | `tests/api-gateway.api.test.js` | Health, request forwarding (method, headers, body), `404` forwarding, `503`, `504`, unknown routes. Uses a mock `orderClient`. |
 | Order Service | `tests/order.api.test.js`, `tests/order.integration.test.js` | Create/get order, validation errors, `PAID`, `PAYMENT_FAILED`, `PENDING` when payment is unavailable. Uses in-memory repository and mock `paymentClient`. |
 | Payment Service | `tests/payment.api.test.js` | Create/get payment, simulated failure, validation, `404`, simulation rejected in production. Uses in-memory repository. |
+| All three | `tests/metrics.test.js` | `/metrics` output, route label uses the pattern, health and metrics requests not counted, business counters (`orders_created_total`, `payments_processed_total`, `gateway_upstream_errors_total`). |
+| All three | `tests/metrics.test.js` | `/metrics` output, route label uses the pattern, health and metrics requests not counted, business counters (`orders_created_total`, `payments_processed_total`, `gateway_upstream_errors_total`). |
 
 Run:
 
@@ -136,19 +140,51 @@ docker compose up -d --build --wait
 
 Every run uses unique IDs, and log lines are read from the last 10 minutes, so old entries cannot cause false passes. The script needs `docker`, `curl`, and `jq` (for the failure message). The total number of checks is calculated, so it does not need updating when checks are added. See [Observability](../architecture/observability.md).
 
-## 7. Reports
+## 7. Metrics Test
 
-The three scripts write a Markdown report to `tests/reports/`:
+`tests/metrics-test.sh` verifies the observability stack on the **already running** stack. It does not recreate containers, so start both Compose files first with `NODE_ENV=development`. It reads `GRAFANA_ADMIN_PASSWORD` from the environment or from `.env`.
+
+```bash
+export NODE_ENV=development
+docker compose -f docker-compose.yaml -f docker-compose.observability.yaml up -d --build --wait
+./tests/metrics-test.sh
+```
+
+| # | Check |
+|---|---|
+| 1 | Both Compose files are valid together |
+| 2 | The three services, Prometheus, and Grafana are healthy |
+| 3 | The three Prometheus targets are `up` |
+| 4-6 | `/metrics` of the Gateway, Order Service, and Payment Service exposes process metrics |
+| 7 | `orders_created_total{status="PAID"}` increases after a real order |
+| 8 | `payments_processed_total{status="FAILED"}` increases after a simulated failure |
+| 9 | No `route` label contains an ID |
+| 10 | No `/health` or `/metrics` series exist |
+| 11 | No `/health` or `/metrics` entries appear in the logs |
+| 12 | Grafana has the Prometheus data source |
+| 13 | Grafana has the PulseTrace Overview dashboard |
+| 14 | The dashboard file is valid JSON |
+| 15 | Every dashboard query is accepted by Prometheus |
+
+The script waits 25 seconds after sending orders, because Prometheus scrapes every 10 seconds. The Order and Payment `/metrics` endpoints are read from inside their containers (their ports are private). The script needs `docker`, `curl`, and `jq`.
+
+Checks 9 and 10 look at every stored series. Prometheus keeps series for 7 days, so a label from an older version of the code can fail them. The `[FAIL]` details name the series.
+
+## 8. Reports
+
+The four scripts write a Markdown report to `tests/reports/`:
 
 | Script | Report file |
 |---|---|
 | `docker-compose-test.sh` | `docker-compose-test-<timestamp>.md` |
 | `postgres-integration-test.sh` | `postgres-integration-test-<timestamp>.md` |
 | `logging-correlation-test.sh` | `logging-correlation-test-<timestamp>.md` |
+| `metrics-test.sh` | `metrics-test-<timestamp>.md` |
+| `metrics-test.sh` | `metrics-test-<timestamp>.md` |
 
 Each report contains a summary and a per-check result table. All scripts exit non-zero when any check fails, so they can be reused in CI later.
 
-## 8. Choosing a Layer
+## 9. Choosing a Layer
 
 | Goal | Run |
 |---|---|
@@ -156,14 +192,22 @@ Each report contains a summary and a per-check result table. All scripts exit no
 | Changed repository SQL, migrations, init script | PostgreSQL integration test |
 | Changed Dockerfile, Compose file, networking, health checks | Docker Compose test |
 | Changed logging, request ID handling, or what is written to logs | Logging correlation test |
+| Changed metrics, Prometheus, Grafana, or the dashboard | Metrics test |
+| Changed metrics, Prometheus, Grafana, or the dashboard | Metrics test |
 | Verify the whole flow with services started by npm | End-to-end tests |
 
-## 9. Current Gaps
+## 10. Current Gaps
 
 - The PostgreSQL integration test does not include a malformed-ID check. That behavior is verified by unit tests and was checked manually against the running stack.
 - No automated test checks that database error codes are hidden from responses.
 - No test covers a payment that succeeds while the following order update fails.
 - No automated test covers a hanging Payment Service, which is where the Gateway and payment timeouts interact. It was checked manually by stopping the Payment Service.
 - The logging correlation test does not check error log entries (for example the `error` serializer).
+- The metrics test does not check `gateway_upstream_errors_total` or `PENDING` orders, because they need a stopped service. `scripts/generate-traffic.sh` covers them manually.
+- The metrics test checks that dashboard queries are valid, not that every panel has data.
+- The error handlers have no dedicated unit test. A broken `AppError` class once returned `500` instead of `400` and `404`.
+- The metrics test does not check `gateway_upstream_errors_total` or `PENDING` orders, because they need a stopped service. `scripts/generate-traffic.sh` covers them manually.
+- The metrics test checks that dashboard queries are valid, not that every panel has data.
+- The error handlers have no dedicated unit test. A broken `AppError` class once returned `500` instead of `400` and `404`.
 - Tests are run manually. CI automation with GitHub Actions is planned.
 - The test count (`TOTAL=22`) in the PostgreSQL script is a constant and must be updated when checks are added.
