@@ -17,7 +17,8 @@ function errorHandler(error, req, res, next) {
   }
 
   if (isServerError) {
-    console.error(error);
+    // The request logger already carries the request ID.
+    req.log.error({ error }, "Unhandled error");
   }
 
   res.status(statusCode).json({
