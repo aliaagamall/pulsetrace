@@ -1,7 +1,9 @@
+const DEFAULT_TIMEOUT_MS = 5000;
+
 class OrderClient {
   constructor({
     baseUrl = process.env.ORDER_SERVICE_URL || "http://localhost:3001",
-    timeout = 3000
+    timeout = DEFAULT_TIMEOUT_MS
   } = {}) {
     this.baseUrl = baseUrl;
     this.timeout = timeout;
