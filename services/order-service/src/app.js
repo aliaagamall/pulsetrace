@@ -6,12 +6,15 @@ const createOrderRouter = require("./routes/order.routes");
 const errorHandler = require("./middleware/error-handler");
 const PaymentClient = require("./clients/payment.client");
 const { createLogger } = require("./config/logger");
+const { createMetrics } = require("./config/metrics");
 const { resolveRequestId } = require("./middleware/request-id");
+const metricsMiddleware = require("./middleware/metrics");
 
 function createApp({
   orderRepository = new InMemoryOrderRepository(),
   paymentClient = new PaymentClient(),
-  logger = createLogger("order-service")
+  logger = createLogger("order-service"),
+  metrics = createMetrics("order-service")
 } = {}) {
   const app = express();
   const orderService = new OrderService(orderRepository, paymentClient);
@@ -21,9 +24,9 @@ function createApp({
     pinoHttp({
       logger,
       genReqId: resolveRequestId,
-      // Health checks run every few seconds, so they are not logged.
+      // Health checks and metric scrapes run every few seconds, so they are not logged.
       autoLogging: {
-        ignore: (req) => req.url === "/health"
+        ignore: (req) => req.url === "/health" || req.url === "/metrics"
       },
       customLogLevel: (req, res, error) => {
         if (error || res.statusCode >= 500) return "error";
@@ -50,6 +53,8 @@ function createApp({
     })
   );
 
+  app.use(metricsMiddleware(metrics));
+
   app.use(express.json({ limit: "10kb" }));
 
   app.get("/health", (req, res) => {
@@ -59,7 +64,17 @@ function createApp({
     });
   });
 
-  app.use("/orders", createOrderRouter(orderService));
+  // Prometheus scrapes this endpoint.
+  app.get("/metrics", async (req, res, next) => {
+    try {
+      res.set("Content-Type", metrics.registry.contentType);
+      res.send(await metrics.registry.metrics());
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.use("/orders", createOrderRouter(orderService, metrics));
 
   app.use((req, res) => {
     res.status(404).json({
