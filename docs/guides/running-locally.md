@@ -34,7 +34,7 @@ Edit `.env` and replace every `change_me_*` value. `.env` is git-ignored and doc
 |---|---|
 | Build and start | `docker compose up -d --build` |
 | Status and health | `docker compose ps` |
-| Follow logs | `docker compose logs -f order-service` |
+| Follow logs (JSON lines) | `docker compose logs -f order-service` |
 | Stop, keep data | `docker compose down` |
 | Stop, delete data | `docker compose down -v` |
 | Recreate app containers only | `docker compose up -d --force-recreate api-gateway order-service payment-service` |
@@ -62,6 +62,30 @@ curl -X POST http://localhost:3000/api/orders \
 ```
 
 The order comes back with `status: "PAYMENT_FAILED"`. With `NODE_ENV=production` the same request returns `400 SIMULATION_NOT_ALLOWED`.
+
+### Read the logs
+
+Services write one JSON object per line. Use `jq` to read them:
+
+```bash
+# one service, readable
+docker compose logs --no-log-prefix api-gateway | jq -R 'fromjson?'
+
+# follow one request across all services by its ID
+curl -s -X POST http://localhost:3000/api/orders \
+  -H "Content-Type: application/json" -H "x-request-id: demo-1" \
+  -d '{"customerId":"customer-123","amount":1500,"currency":"EGP"}'
+
+docker compose logs --no-log-prefix api-gateway order-service payment-service \
+  | jq -R -c 'fromjson? | select(.req.id == "demo-1") | {time, service, msg}' \
+  | sort
+
+# only errors
+docker compose logs --no-log-prefix order-service \
+  | jq -R -c 'fromjson? | select(.level == "error")'
+```
+
+Without the `x-request-id` header the Gateway generates an ID and returns it in the response headers (`curl -i`). The log format and more queries are in [Observability](../architecture/observability.md).
 
 ### Inspect the databases
 
@@ -115,7 +139,7 @@ Services listen on `3000`, `3001`, and `3002` of `localhost`, and the default cl
 | `order-service` waits or is unhealthy | `payment-service` or `postgres` not healthy yet | `docker compose ps`, then check `docker compose logs <service>` |
 | `400 SIMULATION_NOT_ALLOWED` | Stack runs with `NODE_ENV=production` | Set `NODE_ENV=development`, then recreate the app containers |
 | `404 ORDER_NOT_FOUND` for an ID you just copied | The ID is not a complete UUID, or the order was created before `docker compose down -v` | Check the full ID; see [Error Handling](../api/error-handling.md#73-malformed-identifiers) |
-| Order stays `PENDING` | Payment call failed or timed out | Check `payment-service` logs; see [Request Flow](../architecture/request-flow.md#payment-service-failure) |
+| Order stays `PENDING` | Payment call failed or timed out | Search the logs by the request ID and look for `Payment processing failed, order left PENDING`; see [Request Flow](../architecture/request-flow.md#payment-service-failure) |
 
 ## 5. Next Steps
 

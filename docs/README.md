@@ -9,10 +9,11 @@
 | 3 | [Request Flow](architecture/request-flow.md) | Sequence diagrams for success, failure, retrieval, startup |
 | 4 | [Deployment](architecture/deployment.md) | Docker images, Compose topology, startup order, configuration |
 | 5 | [Data Model](architecture/data-model.md) | Databases, tables, migrations, repositories |
-| 6 | [API Contracts](api/api-contracts.md) | Endpoints, request and response formats |
-| 7 | [Error Handling](api/error-handling.md) | Error codes, failure behavior, consistency limits |
-| 8 | [Running Locally](guides/running-locally.md) | Setup, commands, troubleshooting |
-| 9 | [Testing](testing/testing.md) | Test layers, how to run, reports |
+| 6 | [Observability](architecture/observability.md) | Structured logs, request ID correlation, roadmap |
+| 7 | [API Contracts](api/api-contracts.md) | Endpoints, request and response formats |
+| 8 | [Error Handling](api/error-handling.md) | Error codes, failure behavior, consistency limits |
+| 9 | [Running Locally](guides/running-locally.md) | Setup, commands, troubleshooting |
+| 10 | [Testing](guides/testing.md) | Test layers, how to run, reports |
 
 ## Folder Layout
 
@@ -24,13 +25,13 @@ docs/
 │   ├── architecture.md
 │   ├── request-flow.md
 │   ├── deployment.md
-│   └── data-model.md
+│   ├── data-model.md
+│   └── observability.md
 ├── api/
 │   ├── api-contracts.md
 │   └── error-handling.md
-├── guides/
-│   └── running-locally.md
-└── testing/
+└── guides/
+    ├── running-locally.md
     └── testing.md
 ```
 
@@ -43,9 +44,11 @@ docs/
 | How do I add a migration? | [Data Model](architecture/data-model.md#4-migrations) |
 | What happens if the Payment Service is down? | [Request Flow](architecture/request-flow.md#payment-service-failure) |
 | Why is my order `PENDING`? | [Error Handling](api/error-handling.md#8-order-state-consistency) |
+| How do I follow one request across services? | [Observability](architecture/observability.md#7-tracing-one-request) |
+| What does a log line look like? | [Observability](architecture/observability.md#4-log-format) |
 | How do I run the stack? | [Running Locally](guides/running-locally.md) |
-| Which test do I run after a change? | [Testing](testing/testing.md#7-choosing-a-layer) |
+| Which test do I run after a change? | [Testing](guides/testing.md#8-choosing-a-layer) |
 
 ## Scope Note
 
-These documents describe the implemented system: services, PostgreSQL persistence, Docker, and Docker Compose. Metrics, logging, tracing, alerting, Kubernetes, and CI/CD are planned and are described only as roadmap items until they are implemented and verified.
+These documents describe the implemented system: services, PostgreSQL persistence, Docker, Docker Compose, and structured logging with request ID correlation. Metrics, tracing, centralized logging, alerting, Kubernetes, and CI/CD are planned and are described only as roadmap items until they are implemented and verified.

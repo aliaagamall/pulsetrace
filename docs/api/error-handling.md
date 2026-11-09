@@ -208,6 +208,8 @@ The Order Service does not return a dedicated `503` response for this scenario. 
 
 The same path is taken when the Payment Service responds with a non-2xx status, for example `500`: `PaymentClient` throws, the Order Service logs it, and the order stays `PENDING`.
 
+The log entry has the message `Payment processing failed, order left PENDING`, the `orderId`, the error, and the request ID of the original request.
+
 ### 5.2 Payment Service Timeout
 
 The Payment Client configures a request timeout of 3000 milliseconds.
@@ -223,7 +225,7 @@ A timeout does not prove that the Payment Service did not process the payment. T
 
 ### 5.3 Order Service Unavailable
 
-The API Gateway communicates with the Order Service through `OrderClient`, which also uses a 3000 ms timeout.
+The API Gateway communicates with the Order Service through `OrderClient`, which uses a 5000 ms timeout. It is longer than the Order Service's 3000 ms payment timeout so that the Order Service can finish first (see [5.2](#52-payment-service-timeout)).
 
 When the Order Service cannot be reached, the Gateway returns:
 
@@ -254,6 +256,8 @@ When the Order Service does not respond within the Gateway client's timeout, the
 ```
 
 The Gateway does not automatically retry the request.
+
+A hanging Payment Service does not cause this error. The Order Service stops waiting for it after 3000 ms and returns the `PENDING` order before the Gateway's 5000 ms limit. A `504` means the Order Service itself did not respond in time, for example because of a slow database.
 
 ### 5.5 Upstream HTTP Errors
 
@@ -299,7 +303,9 @@ Error codes from libraries or from PostgreSQL are never copied into the response
 
 The Gateway uses its own fallback error handling and does not expose the original error object.
 
-Centralized log collection and structured application logging will be introduced in later observability phases.
+Errors are also written to the logs as structured JSON under the `error` key, together with the request ID, so a failed request can be followed across services. The client response never contains these details. See [Observability](../architecture/observability.md#6-error-logging).
+
+Centralized log collection is planned for a later observability phase.
 
 ## 7. Persistence and Data Failure Considerations
 
@@ -389,4 +395,4 @@ Each service is responsible for its own operations and data.
 - Avoid automatic retries in the initial implementation.
 - Test expected success and failure scenarios through API, integration, and end-to-end tests.
 
-Future observability phases will extend error investigation through centralized logging, metrics, distributed tracing, and alerting.
+Structured logs with request IDs support error investigation today. Future observability phases will extend it through centralized logging, metrics, distributed tracing, and alerting.

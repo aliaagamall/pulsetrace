@@ -2,13 +2,14 @@
 
 ## 1. Overview
 
-PulseTrace has four test layers. Lower layers are fast and need nothing running; higher layers exercise the real containers and database.
+PulseTrace has five test layers. Lower layers are fast and need nothing running; higher layers exercise the real containers and database.
 
 ```mermaid
 flowchart BT
     A["Unit / API tests<br/>per service, in-memory repositories, mocked HTTP clients"] --> B["End-to-end tests<br/>tests/e2e, real running stack over HTTP"]
     B --> C["Docker Compose test<br/>tests/docker-compose-test.sh, production mode"]
     B --> D["PostgreSQL integration test<br/>tests/postgres-integration-test.sh, development mode"]
+    B --> E["Logging correlation test<br/>tests/logging-correlation-test.sh, development mode"]
 ```
 
 | Layer | Location | Runner | Needs running stack | Needs database |
@@ -17,6 +18,7 @@ flowchart BT
 | End-to-end | `tests/e2e/api-flow.test.js` | `node --test` | Yes | Yes (via services) |
 | Compose test | `tests/docker-compose-test.sh` | Bash | Yes (Compose stack) | Yes |
 | PostgreSQL integration | `tests/postgres-integration-test.sh` | Bash | Starts/recreates it | Yes |
+| Logging correlation | `tests/logging-correlation-test.sh` | Bash | Yes (Compose stack) | Yes |
 
 ## 2. Unit and API Tests
 
@@ -37,6 +39,8 @@ npm test --workspace=@pulsetrace/order-service
 # all three
 npm test --workspaces
 ```
+
+The `test` script of each service sets `LOG_LEVEL=silent`, so the tests do not print JSON logs.
 
 These tests do not touch PostgreSQL. Behavior that depends on the database (for example constraints, persistence, and migrations) is covered only by the layers below. Malformed-ID handling (`404` for lookups, `400 INVALID_ORDER_ID`) is checked in these unit tests because the services validate the UUID format before reaching the repository.
 
@@ -106,30 +110,60 @@ The script exits with an error unless `NODE_ENV=production`. It needs `docker`, 
 
 Needs `docker`, `curl`, and `jq`. Set `BASE_URL` to test a Gateway on another address.
 
-## 6. Reports
+## 6. Logging Correlation Test
 
-Both scripts write a Markdown report to `tests/reports/`:
+`tests/logging-correlation-test.sh` verifies structured logging and request ID propagation on the **already running** stack. Unlike the PostgreSQL test it does not recreate containers, so the stack must already run with `NODE_ENV=development` (the failed-payment check sends `simulateFailure`).
+
+```bash
+export NODE_ENV=development
+docker compose up -d --build --wait
+./tests/logging-correlation-test.sh
+```
+
+| # | Check |
+|---|---|
+| 1 | Compose configuration is valid |
+| 2 | Payment, Order, and Gateway containers are healthy |
+| 3 | Gateway `/health` returns `200` |
+| 4 | A supplied `x-request-id` is returned in the response header |
+| 5-7 | The same request ID appears in the logs of the Gateway, Order Service, and Payment Service |
+| 8 | The `Payment processed` entry (`SUCCEEDED`) carries the request ID |
+| 9 | A UUID is generated and returned when no ID is supplied |
+| 10 | An unsafe ID is replaced with a generated UUID |
+| 11 | A simulated payment failure is logged (`FAILED`) with its request ID |
+| 12 | `/health` requests do not appear in the logs |
+| 13 | Request body data (the customer ID) does not appear in any log |
+
+Every run uses unique IDs, and log lines are read from the last 10 minutes, so old entries cannot cause false passes. The script needs `docker`, `curl`, and `jq` (for the failure message). The total number of checks is calculated, so it does not need updating when checks are added. See [Observability](../architecture/observability.md).
+
+## 7. Reports
+
+The three scripts write a Markdown report to `tests/reports/`:
 
 | Script | Report file |
 |---|---|
 | `docker-compose-test.sh` | `docker-compose-test-<timestamp>.md` |
 | `postgres-integration-test.sh` | `postgres-integration-test-<timestamp>.md` |
+| `logging-correlation-test.sh` | `logging-correlation-test-<timestamp>.md` |
 
-Each report contains a summary and a per-check result table. Both scripts exit non-zero when any check fails, so they can be reused in CI later.
+Each report contains a summary and a per-check result table. All scripts exit non-zero when any check fails, so they can be reused in CI later.
 
-## 7. Choosing a Layer
+## 8. Choosing a Layer
 
 | Goal | Run |
 |---|---|
 | Changed validation or business logic | Unit / API tests |
 | Changed repository SQL, migrations, init script | PostgreSQL integration test |
 | Changed Dockerfile, Compose file, networking, health checks | Docker Compose test |
+| Changed logging, request ID handling, or what is written to logs | Logging correlation test |
 | Verify the whole flow with services started by npm | End-to-end tests |
 
-## 8. Current Gaps
+## 9. Current Gaps
 
 - The PostgreSQL integration test does not include a malformed-ID check. That behavior is verified by unit tests and was checked manually against the running stack.
 - No automated test checks that database error codes are hidden from responses.
 - No test covers a payment that succeeds while the following order update fails.
+- No automated test covers a hanging Payment Service, which is where the Gateway and payment timeouts interact. It was checked manually by stopping the Payment Service.
+- The logging correlation test does not check error log entries (for example the `error` serializer).
 - Tests are run manually. CI automation with GitHub Actions is planned.
 - The test count (`TOTAL=22`) in the PostgreSQL script is a constant and must be updated when checks are added.

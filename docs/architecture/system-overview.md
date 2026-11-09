@@ -53,6 +53,7 @@ For the detailed request sequence, see [Request Flow](./request-flow.md).
 - HTTP / REST
 - JSON
 - `pg` (node-postgres)
+- Pino and pino-http (structured JSON logging)
 - Node.js Test Runner
 - Supertest
 
@@ -98,6 +99,9 @@ The planned technologies will be introduced incrementally as the project evolves
 | Automated API tests | Implemented |
 | End-to-end tests | Implemented |
 | Docker Compose and PostgreSQL integration test scripts | Implemented |
+| Structured JSON logging (Pino) | Implemented |
+| Request ID propagation across services | Implemented |
+| Logging correlation test script | Implemented |
 | Metrics collection | Planned |
 | Centralized logging | Planned |
 | Distributed tracing | Planned |
@@ -129,6 +133,8 @@ Centralize application logs to make it easier to:
 - Understand service behavior.
 - Correlate events across services.
 - Troubleshoot failures.
+
+Structured JSON logs with a shared request ID are implemented (see [Observability](./observability.md)). Collecting them in one place is planned.
 
 ### Distributed Tracing
 
@@ -165,8 +171,9 @@ The development approach prioritizes:
 | [Architecture](./architecture.md) | Overall system architecture and design decisions |
 | [Deployment](./deployment.md) | Docker images, Compose topology, startup order, configuration |
 | [Data Model](./data-model.md) | Databases, tables, migrations, repositories |
+| [Observability](./observability.md) | Structured logging, request ID correlation, roadmap |
 | [Request Flow](./request-flow.md) | Order creation sequence and failure scenarios |
 | [API Contracts](../api/api-contracts.md) | Service endpoints, request formats, and responses |
 | [Error Handling](../api/error-handling.md) | Error codes and failure behavior |
 | [Running Locally](../guides/running-locally.md) | Setup and day-to-day commands |
-| [Testing](../testing/testing.md) | Test layers, how to run them, reports |
+| [Testing](../guides/testing.md) | Test layers, how to run them, reports |

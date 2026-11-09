@@ -137,11 +137,33 @@ sequenceDiagram
     alt Order Service unreachable
         G--xO: Connection error
         G-->>C: 503 ORDER_SERVICE_UNAVAILABLE
-    else No response within 3000 ms
+    else No response within 5000 ms
         G--xO: Aborted
         G-->>C: 504 ORDER_SERVICE_TIMEOUT
     end
 ```
+
+## Request ID Propagation
+
+Every request carries an ID through the whole flow. The Gateway accepts a valid `x-request-id` header or generates a UUID, forwards it to the Order Service, and the Order Service forwards it to the Payment Service. Each service logs its lines with the same ID, and the Gateway returns it in the response header.
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant G as API Gateway
+    participant O as Order Service
+    participant P as Payment Service
+
+    C->>G: POST /api/orders
+    Note over G: Generate ID (or accept the supplied one)
+    G->>O: x-request-id: abc-123
+    O->>P: x-request-id: abc-123
+    P-->>O: Log lines with abc-123
+    O-->>G: Log lines with abc-123
+    G-->>C: x-request-id: abc-123
+```
+
+The rules for accepted IDs, the log format, and how to search the logs are in [Observability](./observability.md).
 
 ## Service Startup Flow
 
@@ -185,7 +207,14 @@ The Order Service waits for the Payment Service response before completing the o
 
 ### Request Timeouts
 
-The HTTP clients use a timeout of 3000 milliseconds.
+The HTTP clients use these timeouts:
+
+| Client | Target | Timeout |
+|---|---|---|
+| Gateway `OrderClient` | Order Service | 5000 ms |
+| Order Service `PaymentClient` | Payment Service | 3000 ms |
+
+The Gateway timeout is longer than the payment timeout on purpose. If the Payment Service hangs, the Order Service gives up after 3000 ms and returns the `PENDING` order while the Gateway is still waiting. With equal timeouts the Gateway would give up first and return `504`, even though the order was already created.
 
 The API Gateway maps Order Service connection failures and timeouts to:
 

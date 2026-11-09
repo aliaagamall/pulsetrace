@@ -115,6 +115,10 @@ Per-service environment set in Compose:
 
 `pg` reads the standard `PG*` variables, so the code contains no connection strings.
 
+### Logging
+
+The three application services write structured JSON logs to standard output, which Docker stores and `docker compose logs` reads. `LOG_LEVEL` (default `info`) sets the minimum level. Compose does not set it, so containers use the default. See [Observability](./observability.md).
+
 ## 7. Database Bootstrap
 
 `database/init/001_create_databases.sh` is mounted read-only into `/docker-entrypoint-initdb.d/`. The PostgreSQL image runs it once, when the data directory is empty.
@@ -148,5 +152,6 @@ Consequences of the "runs once" behavior:
 - Image tags are fixed at `0.1.0`; there is no registry push or versioning pipeline.
 - No resource limits (CPU or memory) are configured.
 - Health checks cover process liveness, not dependency health.
+- Logs are kept only in Docker's container logs. No collection or rotation is configured.
 - Order and Payment endpoints are not published to the host, so tests that call ports 3001 and 3002 directly work only when services run with npm.
 - Kubernetes manifests and CI/CD are planned and not part of the current deployment.

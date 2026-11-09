@@ -54,6 +54,7 @@ Only the API Gateway is published to the host. The Order Service, Payment Servic
 - Handles connection failures and request timeouts.
 - Exposes a basic health endpoint.
 - Stateless: no database.
+- Accepts or generates the request ID and forwards it to the Order Service.
 
 **Default Port:** `3000`
 
@@ -122,9 +123,13 @@ The request flow is:
 | Protocol | HTTP |
 | Data format | JSON |
 | Service discovery | Configured service URLs (Compose DNS names in containers) |
-| Request timeout | 3000 ms |
+| Request timeout (Gateway to Order Service) | 5000 ms |
+| Request timeout (Order Service to Payment Service) | 3000 ms |
+| Request correlation | `x-request-id` header forwarded on every hop |
 | Retry mechanism | Not implemented |
 | Message broker | Not implemented |
+
+The Gateway timeout is longer than the payment timeout on purpose. When the Payment Service hangs, the Order Service gives up first and returns the `PENDING` order, instead of the Gateway timing out with a `504`.
 
 Service URLs are configured through environment variables:
 
@@ -172,6 +177,13 @@ Observability is the main engineering focus of PulseTrace.
 
 The application is being developed to progressively introduce observability capabilities across its microservices.
 
+Implemented:
+
+- Structured JSON logging with Pino in every service.
+- A request ID (`x-request-id`) that follows an order through the Gateway, Order Service, and Payment Service, so one request can be traced in the logs.
+
+See [Observability](./observability.md) for the log format and how to trace a request.
+
 The planned observability stack includes:
 
 | Component | Planned Responsibility |
@@ -193,6 +205,7 @@ These components are planned integrations and should not be considered part of t
 | Containerization | Docker | Implemented | Package individual services |
 | Local orchestration | Docker Compose | Implemented | Run the application and PostgreSQL |
 | Persistent storage | PostgreSQL | Implemented | Store service data |
+| Structured logging | Pino | Implemented | JSON logs with request IDs |
 | Metrics | Prometheus | Planned | Collect application metrics |
 | Visualization | Grafana | Planned | Build monitoring dashboards |
 | Logging | Loki + Fluent Bit | Planned | Centralize application logs |
@@ -216,6 +229,7 @@ These components are planned integrations and should not be considered part of t
 - [System Overview](./system-overview.md)
 - [Deployment](./deployment.md)
 - [Data Model](./data-model.md)
+- [Observability](./observability.md)
 - [Request Flow](./request-flow.md)
 - [API Contracts](../api/api-contracts.md)
 - [Error Handling](../api/error-handling.md)

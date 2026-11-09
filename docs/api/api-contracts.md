@@ -43,6 +43,17 @@ The internal clients use environment variables to configure service URLs:
 - Amounts must be positive finite numbers.
 - JSON request bodies are limited to 10 KB by each service.
 
+### Request ID
+
+Every request has an ID that appears in the logs of all three services.
+
+- A client may send an `x-request-id` header. It must contain only letters, digits, and hyphens, up to 64 characters.
+- If the header is missing or does not match that pattern, the Gateway generates a UUID. The request is not rejected.
+- Every Gateway response includes the `x-request-id` header with the ID that was used.
+- The Gateway forwards the ID to the Order Service, which forwards it to the Payment Service.
+
+See [Observability](../architecture/observability.md#3-request-id-correlation).
+
 ### Order Statuses
 
 | Status | Description |

@@ -10,15 +10,16 @@ Observability capabilities will be introduced progressively throughout the proje
 
 ## Project Status
 
-The application layer, persistence, and containerization are complete. Observability, orchestration, and CI/CD are planned.
+The application layer, persistence, containerization, and structured logging are complete. Metrics, tracing, centralized logging, alerting, orchestration, and CI/CD are planned.
 
 | Area | Status |
 |---|---|
 | API Gateway, Order Service, Payment Service | Implemented |
 | PostgreSQL persistence (database per service) with SQL migrations | Implemented |
 | Docker images and Docker Compose stack with health checks | Implemented |
-| Unit/API, end-to-end, and Docker/PostgreSQL integration tests | Implemented |
-| Metrics, logging, tracing, alerting | Planned |
+| Structured JSON logging with request ID correlation across services | Implemented |
+| Unit/API, end-to-end, Docker/PostgreSQL integration, and logging correlation tests | Implemented |
+| Metrics, tracing, centralized logging, alerting | Planned |
 | Kubernetes, GitHub Actions | Planned |
 
 ## Architecture at a Glance
@@ -50,7 +51,18 @@ curl -X POST http://localhost:3000/api/orders \
   -d '{"customerId":"customer-123","amount":1500,"currency":"EGP"}'
 ```
 
-See [Running Locally](docs/guides/running-locally.md) for the full workflow.
+Follow one request through all three services by its ID:
+
+```bash
+curl -s -X POST http://localhost:3000/api/orders \
+  -H "Content-Type: application/json" -H "x-request-id: demo-1" \
+  -d '{"customerId":"customer-123","amount":1500,"currency":"EGP"}'
+
+docker compose logs --no-log-prefix api-gateway order-service payment-service \
+  | jq -R -c 'fromjson? | select(.req.id == "demo-1") | {time, service, msg}'
+```
+
+See [Running Locally](docs/guides/running-locally.md) for the full workflow and [Observability](docs/architecture/observability.md) for the log format.
 
 ## Technology Stack
 
@@ -59,6 +71,7 @@ Implemented:
 - Node.js 24 and Express 5
 - PostgreSQL 17
 - Docker and Docker Compose
+- Pino (structured JSON logging)
 - Node.js test runner and Supertest
 
 Planned:
