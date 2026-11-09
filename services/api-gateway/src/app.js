@@ -2,11 +2,14 @@ const express = require("express");
 const pinoHttp = require("pino-http");
 const OrderClient = require("./clients/order.client");
 const { createLogger } = require("./config/logger");
+const { createMetrics } = require("./config/metrics");
 const { resolveRequestId } = require("./middleware/request-id");
+const metricsMiddleware = require("./middleware/metrics");
 
 function createApp({
   orderClient = new OrderClient(),
-  logger = createLogger("api-gateway")
+  logger = createLogger("api-gateway"),
+  metrics = createMetrics("api-gateway")
 } = {}) {
   const app = express();
 
@@ -15,9 +18,9 @@ function createApp({
     pinoHttp({
       logger,
       genReqId: resolveRequestId,
-      // Health checks run every few seconds, so they are not logged.
+      // Health checks and metric scrapes run every few seconds, so they are not logged.
       autoLogging: {
-        ignore: (req) => req.url === "/health"
+        ignore: (req) => req.url === "/health" || req.url === "/metrics"
       },
       customLogLevel: (req, res, error) => {
         if (error || res.statusCode >= 500) return "error";
@@ -44,6 +47,8 @@ function createApp({
     })
   );
 
+  app.use(metricsMiddleware(metrics));
+
   app.use(express.json({ limit: "10kb" }));
 
   app.get("/health", (req, res) => {
@@ -51,6 +56,16 @@ function createApp({
       status: "ok",
       service: "api-gateway"
     });
+  });
+
+  // Prometheus scrapes this endpoint.
+  app.get("/metrics", async (req, res, next) => {
+    try {
+      res.set("Content-Type", metrics.registry.contentType);
+      res.send(await metrics.registry.metrics());
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.post("/api/orders", async (req, res, next) => {
@@ -102,13 +117,16 @@ function createApp({
     }
 
     const statusCode = error.statusCode || 502;
+    const code = error.code || "UPSTREAM_SERVICE_ERROR";
+
+    metrics.gatewayUpstreamErrorsTotal.inc({ code });
 
     const logError = statusCode >= 500 ? req.log.error : req.log.warn;
     logError.call(req.log, { error }, "gateway error");
 
     res.status(statusCode).json({
       error: {
-        code: error.code || "UPSTREAM_SERVICE_ERROR",
+        code,
         message: error.message || "Order Service request failed."
       }
     });
