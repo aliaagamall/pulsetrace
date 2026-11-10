@@ -2,57 +2,80 @@
 
 ## 1. Overview
 
-PulseTrace has six test layers. Lower layers are fast and need nothing running; higher layers exercise the real containers and database.
+PulseTrace uses multiple test layers. Lower layers run quickly without containers, while higher layers verify the running services, database, and observability stack.
 
 ```mermaid
 flowchart BT
-    A["Unit / API tests<br/>per service, in-memory repositories, mocked HTTP clients"] --> B["End-to-end tests<br/>tests/e2e, real running stack over HTTP"]
-    B --> C["Docker Compose test<br/>tests/docker-compose-test.sh, production mode"]
-    B --> D["PostgreSQL integration test<br/>tests/postgres-integration-test.sh, development mode"]
-    B --> E["Logging correlation test<br/>tests/logging-correlation-test.sh, development mode"]
+    A["Unit / API tests<br/>In-memory repositories and mocked clients"]
+    B["End-to-end tests<br/>Real services over HTTP"]
+    C["Docker Compose test<br/>Production mode"]
+    D["PostgreSQL integration test<br/>Development mode"]
+    E["Logging correlation test<br/>Development mode"]
+    F["Metrics test<br/>Prometheus and Grafana"]
+
+    A --> B
+    B --> C
+    B --> D
+    B --> E
+    B --> F
 ```
 
-| Layer | Location | Runner | Needs running stack | Needs database |
+| Layer | Location | Runner | Running stack required | Database required |
 |---|---|---|---|---|
 | Unit / API | `services/<service>/tests/` | `node --test`, Supertest | No | No |
-| End-to-end | `tests/e2e/api-flow.test.js` | `node --test` | Yes | Yes (via services) |
-| Compose test | `tests/docker-compose-test.sh` | Bash | Yes (Compose stack) | Yes |
-| PostgreSQL integration | `tests/postgres-integration-test.sh` | Bash | Starts/recreates it | Yes |
-| Logging correlation | `tests/logging-correlation-test.sh` | Bash | Yes (Compose stack) | Yes |
-| Metrics | `tests/metrics-test.sh` | Bash | Yes (both Compose files) | Yes |
-| Metrics | `tests/metrics-test.sh` | Bash | Yes (both Compose files) | Yes |
+| End-to-end | `tests/e2e/api-flow.test.js` | `node --test` | Yes | Yes, through services |
+| Docker Compose | `tests/docker-compose-test.sh` | Bash | Yes | Yes |
+| PostgreSQL integration | `tests/postgres-integration-test.sh` | Bash | Starts/recreates services | Yes |
+| Logging correlation | `tests/logging-correlation-test.sh` | Bash | Yes | Yes |
+| Metrics | `tests/metrics-test.sh` | Bash | Both Compose files | Yes |
 
 ## 2. Unit and API Tests
 
-Each service builds its app with `createApp()` and injects test doubles, so the tests run in-process without ports or containers.
+Each service creates its application through `createApp()` and injects test doubles where needed.
 
-| Service | Files | What they cover |
+These tests run in-process without starting containers or opening network ports.
+
+| Service | Test files | Coverage |
 |---|---|---|
-| API Gateway | `tests/api-gateway.api.test.js` | Health, request forwarding (method, headers, body), `404` forwarding, `503`, `504`, unknown routes. Uses a mock `orderClient`. |
-| Order Service | `tests/order.api.test.js`, `tests/order.integration.test.js` | Create/get order, validation errors, `PAID`, `PAYMENT_FAILED`, `PENDING` when payment is unavailable. Uses in-memory repository and mock `paymentClient`. |
-| Payment Service | `tests/payment.api.test.js` | Create/get payment, simulated failure, validation, `404`, simulation rejected in production. Uses in-memory repository. |
-| All three | `tests/metrics.test.js` | `/metrics` output, route label uses the pattern, health and metrics requests not counted, business counters (`orders_created_total`, `payments_processed_total`, `gateway_upstream_errors_total`). |
-| All three | `tests/metrics.test.js` | `/metrics` output, route label uses the pattern, health and metrics requests not counted, business counters (`orders_created_total`, `payments_processed_total`, `gateway_upstream_errors_total`). |
+| API Gateway | `tests/api-gateway.api.test.js` | Health, request forwarding, method and header forwarding, error forwarding, 404, 503, 504, and unknown routes |
+| Order Service | `tests/order.api.test.js`, `tests/order.integration.test.js` | Order creation and retrieval, validation, PAID, PAYMENT_FAILED, and PENDING when payment is unavailable |
+| Payment Service | `tests/payment.api.test.js` | Payment creation and retrieval, simulated failures, validation, 404, and production-mode restrictions |
+| All services | `tests/metrics.test.js` | Metrics endpoint, route labels, probe exclusion, and business counters |
 
-Run:
+Run tests for one service:
 
 ```bash
-# one service
 npm test --workspace=@pulsetrace/order-service
+```
 
-# all three
+Run tests for all workspaces:
+
+```bash
 npm test --workspaces
 ```
 
-The `test` script of each service sets `LOG_LEVEL=silent`, so the tests do not print JSON logs.
+The test scripts set `LOG_LEVEL=silent` to avoid printing request logs during test execution.
 
-These tests do not touch PostgreSQL. Behavior that depends on the database (for example constraints, persistence, and migrations) is covered only by the layers below. Malformed-ID handling (`404` for lookups, `400 INVALID_ORDER_ID`) is checked in these unit tests because the services validate the UUID format before reaching the repository.
+Unit tests use in-memory repositories. Database persistence, migrations, and database constraints are covered by the PostgreSQL integration test.
 
 ## 3. End-to-End Tests
 
-`tests/e2e/api-flow.test.js` calls the running system over HTTP.
+The end-to-end test is located at:
 
-Checks: all three `/health` endpoints, successful order with payment (`PAID`), retrieval through the Gateway, failed payment (`PAYMENT_FAILED`), invalid amount (`400 INVALID_AMOUNT`), and unknown order (`404 ORDER_NOT_FOUND`, using a valid but nonexistent UUID).
+`tests/e2e/api-flow.test.js`
+
+It sends HTTP requests through the running application.
+
+Coverage includes:
+
+- Health checks for the three services.
+- Successful order creation and payment.
+- Order retrieval through the Gateway.
+- Simulated payment failure.
+- Invalid amount validation.
+- Unknown order handling.
+
+Run:
 
 ```bash
 npm run test:e2e
@@ -60,154 +83,202 @@ npm run test:e2e
 
 Requirements:
 
-- `NODE_ENV=development` on the services, because the failed-payment case sends `simulateFailure`.
-- The health check hits `localhost:3001` and `localhost:3002` directly. Compose does not publish those ports, so this test fits services started with npm. Against the Compose stack, use the scripts below. `GATEWAY_URL` overrides the Gateway address.
+- Services must be running.
+- The services must use `NODE_ENV=development` because the failure scenario uses `simulateFailure`.
+- The test checks the Gateway and the internal service ports directly. This is suitable for services started with npm.
+- `GATEWAY_URL` can override the Gateway address.
 
 ## 4. Docker Compose Test
 
-`tests/docker-compose-test.sh` checks the **already running** Compose stack in production mode. It does not start or stop containers.
+`tests/docker-compose-test.sh` verifies the running application stack in production mode.
+
+It does not start or stop containers.
 
 ```bash
 export NODE_ENV=production
-docker compose up -d --build
+docker compose up -d --build --wait
 ./tests/docker-compose-test.sh
 ```
 
+The script checks:
+
 | # | Check |
 |---|---|
-| 1 | `docker compose config` is valid |
-| 2-4 | `payment-service`, `order-service`, `api-gateway` containers are `healthy` |
-| 5 | Gateway `/health` returns `200` |
-| 6 | Order Service reaches `payment-service:3002` by DNS |
-| 7 | Gateway reaches `order-service:3001` by DNS |
-| 8 | End-to-end order creation returns `201` and `PAID` |
+| 1 | Docker Compose configuration is valid |
+| 2–4 | Payment, Order, and Gateway containers are healthy |
+| 5 | Gateway health endpoint returns HTTP 200 |
+| 6 | Order Service can reach Payment Service through Docker DNS |
+| 7 | Gateway can reach Order Service through Docker DNS |
+| 8 | Successful order creation returns HTTP 201 and PAID |
 | 9 | The created order can be retrieved |
 | 10 | `simulateFailure` is rejected with `400 SIMULATION_NOT_ALLOWED` |
 
-The script exits with an error unless `NODE_ENV=production`. It needs `docker`, `curl`, and `node`.
+The script requires `NODE_ENV=production`.
+
+Required tools: Docker, curl, and Node.js.
 
 ## 5. PostgreSQL Integration Test
 
-`tests/postgres-integration-test.sh` verifies persistence. It forces `NODE_ENV=development`, ensures PostgreSQL is running, and force-recreates the three application containers.
+`tests/postgres-integration-test.sh` verifies database persistence and integration.
+
+The script uses development mode and recreates the application containers.
+
+Run:
 
 ```bash
 ./tests/postgres-integration-test.sh
 ```
 
+The test checks:
+
 | # | Check |
 |---|---|
 | 1 | Compose configuration is valid |
 | 2 | PostgreSQL is healthy |
-| 3-5 | Payment, Order, Gateway containers are healthy |
+| 3–5 | Payment, Order, and Gateway containers are healthy |
 | 6 | PostgreSQL accepts queries |
-| 7-8 | `order_db` and `payment_db` exist |
-| 9-10 | `schema_migrations` exists in both databases |
-| 11 | Gateway `/health` returns `200` |
-| 12 | Successful order is created with `PAID` |
-| 13 | The order can be retrieved with `PAID` |
-| 14-15 | The order row and the `SUCCEEDED` payment row exist in the databases |
-| 16 | Simulated failure produces `PAYMENT_FAILED` |
-| 17-18 | The failed order and `FAILED` payment rows exist |
-| 19 | Invalid amount is rejected with `400` (or `422`) |
-| 20 | Order and Payment services recover after `docker compose restart` |
-| 21-22 | The order is still retrievable and still in the database after the restart |
+| 7–8 | `order_db` and `payment_db` exist |
+| 9–10 | Migration tables exist in both databases |
+| 11 | Gateway health endpoint returns HTTP 200 |
+| 12 | A successful order is created with PAID status |
+| 13 | The order can be retrieved |
+| 14–15 | The order and successful payment exist in PostgreSQL |
+| 16 | Simulated payment failure produces PAYMENT_FAILED |
+| 17–18 | The failed order and payment exist in PostgreSQL |
+| 19 | Invalid amount is rejected |
+| 20 | Order and Payment services recover after restart |
+| 21–22 | The order remains retrievable and persisted after restart |
 
-Needs `docker`, `curl`, and `jq`. Set `BASE_URL` to test a Gateway on another address.
+Required tools: Docker, curl, and jq.
+
+`BASE_URL` can be used to override the Gateway address.
 
 ## 6. Logging Correlation Test
 
-`tests/logging-correlation-test.sh` verifies structured logging and request ID propagation on the **already running** stack. Unlike the PostgreSQL test it does not recreate containers, so the stack must already run with `NODE_ENV=development` (the failed-payment check sends `simulateFailure`).
+`tests/logging-correlation-test.sh` verifies structured logging and request ID propagation across the three services.
+
+It runs against the already running stack and does not recreate containers.
+
+The stack must use development mode because the test sends a simulated payment failure.
 
 ```bash
 export NODE_ENV=development
+
 docker compose up -d --build --wait
+
 ./tests/logging-correlation-test.sh
 ```
+
+The test checks:
 
 | # | Check |
 |---|---|
 | 1 | Compose configuration is valid |
-| 2 | Payment, Order, and Gateway containers are healthy |
-| 3 | Gateway `/health` returns `200` |
-| 4 | A supplied `x-request-id` is returned in the response header |
-| 5-7 | The same request ID appears in the logs of the Gateway, Order Service, and Payment Service |
-| 8 | The `Payment processed` entry (`SUCCEEDED`) carries the request ID |
-| 9 | A UUID is generated and returned when no ID is supplied |
-| 10 | An unsafe ID is replaced with a generated UUID |
-| 11 | A simulated payment failure is logged (`FAILED`) with its request ID |
-| 12 | `/health` requests do not appear in the logs |
-| 13 | Request body data (the customer ID) does not appear in any log |
+| 2 | All three application containers are healthy |
+| 3 | Gateway health endpoint returns HTTP 200 |
+| 4 | A supplied `x-request-id` is returned in the response |
+| 5–7 | The same request ID appears in all three service logs |
+| 8 | Successful payment log contains the request ID |
+| 9 | A UUID is generated when no request ID is supplied |
+| 10 | An unsafe request ID is replaced with a generated UUID |
+| 11 | Failed payment log contains the request ID |
+| 12 | Health checks are excluded from logs |
+| 13 | Request body data is not written to logs |
 
-Every run uses unique IDs, and log lines are read from the last 10 minutes, so old entries cannot cause false passes. The script needs `docker`, `curl`, and `jq` (for the failure message). The total number of checks is calculated, so it does not need updating when checks are added. See [Observability](../architecture/observability.md).
+Each run uses unique request IDs. The script checks recent logs to avoid matching old test entries.
+
+Required tools: Docker, curl, and jq.
 
 ## 7. Metrics Test
 
-`tests/metrics-test.sh` verifies the observability stack on the **already running** stack. It does not recreate containers, so start both Compose files first with `NODE_ENV=development`. It reads `GRAFANA_ADMIN_PASSWORD` from the environment or from `.env`.
+`tests/metrics-test.sh` verifies the Prometheus and Grafana observability stack.
+
+It runs against the already running stack and does not recreate containers.
+
+Both Compose files must be started, and the application must use development mode.
 
 ```bash
 export NODE_ENV=development
-docker compose -f docker-compose.yaml -f docker-compose.observability.yaml up -d --build --wait
+
+docker compose \
+  -f docker-compose.yaml \
+  -f docker-compose.observability.yaml \
+  up -d --build --wait
+
 ./tests/metrics-test.sh
 ```
+
+The script reads `GRAFANA_ADMIN_PASSWORD` from the environment or from `.env`.
+
+### Test coverage
 
 | # | Check |
 |---|---|
 | 1 | Both Compose files are valid together |
-| 2 | The three services, Prometheus, and Grafana are healthy |
-| 3 | The three Prometheus targets are `up` |
-| 4-6 | `/metrics` of the Gateway, Order Service, and Payment Service exposes process metrics |
-| 7 | `orders_created_total{status="PAID"}` increases after a real order |
+| 2 | Application services, Prometheus, and Grafana are healthy |
+| 3 | All three Prometheus targets are UP |
+| 4–6 | Gateway, Order, and Payment expose their metrics endpoints |
+| 7 | `orders_created_total{status="PAID"}` increases after a successful order |
 | 8 | `payments_processed_total{status="FAILED"}` increases after a simulated failure |
-| 9 | No `route` label contains an ID |
-| 10 | No `/health` or `/metrics` series exist |
-| 11 | No `/health` or `/metrics` entries appear in the logs |
+| 9 | Route labels do not contain request-specific IDs |
+| 10 | Health and metrics probes are excluded from stored request metrics |
+| 11 | Health and metrics probes are excluded from service logs |
 | 12 | Grafana has the Prometheus data source |
-| 13 | Grafana has the PulseTrace Overview dashboard |
-| 14 | The dashboard file is valid JSON |
-| 15 | Every dashboard query is accepted by Prometheus |
+| 13 | Grafana has the PulseTrace dashboard |
+| 14 | Dashboard JSON is valid |
+| 15 | All dashboard PromQL expressions are accepted by Prometheus |
 
-The script waits 25 seconds after sending orders, because Prometheus scrapes every 10 seconds. The Order and Payment `/metrics` endpoints are read from inside their containers (their ports are private). The script needs `docker`, `curl`, and `jq`.
+The script waits for Prometheus to scrape the generated traffic. The configured scrape interval is 10 seconds.
 
-Checks 9 and 10 look at every stored series. Prometheus keeps series for 7 days, so a label from an older version of the code can fail them. The `[FAIL]` details name the series.
+The Order and Payment metrics endpoints are accessed from inside their containers because their ports are not published to the host.
 
-## 8. Reports
+Required tools: Docker, curl, and jq.
 
-The four scripts write a Markdown report to `tests/reports/`:
+### Important limitations
 
-| Script | Report file |
+- The test validates that dashboard queries are accepted by Prometheus. It does not guarantee that every panel currently has data.
+- Some metrics only appear after specific events.
+- Prometheus retains time series for seven days. Old series from previous code versions may still be visible.
+- A container restart resets its in-memory counters.
+
+## 8. Test Reports
+
+Test scripts write Markdown reports under:
+
+`tests/reports/`
+
+| Script | Report filename |
 |---|---|
 | `docker-compose-test.sh` | `docker-compose-test-<timestamp>.md` |
 | `postgres-integration-test.sh` | `postgres-integration-test-<timestamp>.md` |
 | `logging-correlation-test.sh` | `logging-correlation-test-<timestamp>.md` |
 | `metrics-test.sh` | `metrics-test-<timestamp>.md` |
-| `metrics-test.sh` | `metrics-test-<timestamp>.md` |
 
-Each report contains a summary and a per-check result table. All scripts exit non-zero when any check fails, so they can be reused in CI later.
+Each report contains a summary and a table of individual checks.
 
-## 9. Choosing a Layer
+A test script exits with a non-zero status when at least one check fails.
 
-| Goal | Run |
+## 9. Choosing the Right Test Layer
+
+| Change | Recommended test |
 |---|---|
-| Changed validation or business logic | Unit / API tests |
-| Changed repository SQL, migrations, init script | PostgreSQL integration test |
-| Changed Dockerfile, Compose file, networking, health checks | Docker Compose test |
-| Changed logging, request ID handling, or what is written to logs | Logging correlation test |
-| Changed metrics, Prometheus, Grafana, or the dashboard | Metrics test |
-| Changed metrics, Prometheus, Grafana, or the dashboard | Metrics test |
-| Verify the whole flow with services started by npm | End-to-end tests |
+| Business logic or validation | Unit / API tests |
+| Database queries, migrations, or initialization | PostgreSQL integration test |
+| Dockerfiles, Compose, networking, or health checks | Docker Compose test |
+| Logging or request ID propagation | Logging correlation test |
+| Metrics, Prometheus, Grafana, or dashboard queries | Metrics test |
+| Full request flow across services | End-to-end tests |
 
 ## 10. Current Gaps
 
-- The PostgreSQL integration test does not include a malformed-ID check. That behavior is verified by unit tests and was checked manually against the running stack.
-- No automated test checks that database error codes are hidden from responses.
-- No test covers a payment that succeeds while the following order update fails.
-- No automated test covers a hanging Payment Service, which is where the Gateway and payment timeouts interact. It was checked manually by stopping the Payment Service.
-- The logging correlation test does not check error log entries (for example the `error` serializer).
-- The metrics test does not check `gateway_upstream_errors_total` or `PENDING` orders, because they need a stopped service. `scripts/generate-traffic.sh` covers them manually.
-- The metrics test checks that dashboard queries are valid, not that every panel has data.
-- The error handlers have no dedicated unit test. A broken `AppError` class once returned `500` instead of `400` and `404`.
-- The metrics test does not check `gateway_upstream_errors_total` or `PENDING` orders, because they need a stopped service. `scripts/generate-traffic.sh` covers them manually.
-- The metrics test checks that dashboard queries are valid, not that every panel has data.
-- The error handlers have no dedicated unit test. A broken `AppError` class once returned `500` instead of `400` and `404`.
-- Tests are run manually. CI automation with GitHub Actions is planned.
-- The test count (`TOTAL=22`) in the PostgreSQL script is a constant and must be updated when checks are added.
+The following areas are not fully automated yet:
+
+- The PostgreSQL integration test does not include every malformed-ID scenario.
+- Database error-code exposure does not have a dedicated automated test.
+- A successful payment followed by a failed order update is not covered.
+- A hanging Payment Service is not covered by an automated test.
+- Logging correlation tests do not cover every error-logging scenario.
+- The metrics test does not directly verify `gateway_upstream_errors_total` or PENDING orders.
+- Dashboard query validation does not guarantee that every panel displays data.
+- Error handlers do not yet have dedicated tests for every possible error path.
+- CI automation with GitHub Actions is planned.
