@@ -1,6 +1,6 @@
 # PulseTrace
 
-**A local-first microservices platform with end-to-end observability foundations.**
+**Microservices platform with end-to-end observability foundations.**
 
 PulseTrace is a hands-on project that simulates an e-commerce workflow across independent Node.js services. It explores how to build, containerize, monitor, and troubleshoot a distributed application using modern backend and DevOps tools.
 
@@ -18,13 +18,21 @@ Each service has its own PostgreSQL database. The application runs locally using
 
 The project introduces observability capabilities progressively, building from structured logs and metrics toward distributed tracing, centralized logging, and alerting.
 
+---
+
 ## Architecture
 
-The following diagram shows how application requests flow through the services and how the monitoring stack collects and visualizes application metrics.
+The following diagram illustrates the current application architecture and the planned evolution of its observability and CI/CD capabilities.
+
+Implemented components are distinguished from planned components to provide a clear view of the project's current state and target architecture.
 
 ```mermaid
 flowchart TB
     Client([Client])
+
+    subgraph CI["CI/CD Layer"]
+        GHA["GitHub Actions"]
+    end
 
     subgraph Application["Application Layer"]
         direction LR
@@ -47,11 +55,32 @@ flowchart TB
     end
 
     subgraph Observability["Observability Layer"]
-        direction LR
-        Prometheus["Prometheus<br/>Metrics Collection"]
-        Grafana["Grafana<br/>Dashboards"]
+        direction TB
 
-        Prometheus -->|PromQL queries| Grafana
+        subgraph Metrics["Metrics"]
+            direction LR
+            Prometheus["Prometheus<br/>Metrics Collection"]
+            Grafana["Grafana<br/>Dashboards"]
+            Prometheus -->|PromQL| Grafana
+        end
+
+        subgraph Logging["Centralized Logging"]
+            direction LR
+            FluentBit["Fluent Bit<br/>Log Collection"]
+            Loki["Loki<br/>Log Aggregation"]
+            FluentBit --> Loki
+        end
+
+        subgraph Tracing["Distributed Tracing"]
+            direction LR
+            OTel["OpenTelemetry<br/>Instrumentation"]
+            Jaeger["Jaeger<br/>Trace Visualization"]
+            OTel --> Jaeger
+        end
+
+        subgraph Alerting["Alerting"]
+            Alertmanager["Alertmanager<br/>Notifications"]
+        end
     end
 
     Client -->|HTTP| Gateway
@@ -59,20 +88,35 @@ flowchart TB
     Order --> OrderDB
     Payment --> PaymentDB
 
-    Gateway -.->|Metrics endpoint| Prometheus
-    Order -.->|Metrics endpoint| Prometheus
-    Payment -.->|Metrics endpoint| Prometheus
+    Gateway -.->|Metrics| Prometheus
+    Order -.->|Metrics| Prometheus
+    Payment -.->|Metrics| Prometheus
 
-    classDef app fill:#1d4ed8,stroke:#60a5fa,color:#fff
-    classDef database fill:#475569,stroke:#94a3b8,color:#fff
-    classDef monitoring fill:#7c3aed,stroke:#c4b5fd,color:#fff
+    Gateway -.->|Logs| FluentBit
+    Order -.->|Logs| FluentBit
+    Payment -.->|Logs| FluentBit
+
+    Gateway -.->|Traces| OTel
+    Order -.->|Traces| OTel
+    Payment -.->|Traces| OTel
+
+    Prometheus -.->|Alert Rules| Alertmanager
+
+    GHA -.->|Build & CI/CD| Application
+
+    classDef implemented fill:#166534,stroke:#4ade80,color:#fff
+    classDef planned fill:#78350f,stroke:#fbbf24,color:#fff,stroke-dasharray:5 5
     classDef client fill:#0f766e,stroke:#5eead4,color:#fff
 
-    class Gateway,Order,Payment app
-    class OrderDB,PaymentDB,PostgreSQL database
-    class Prometheus,Grafana monitoring
+    class Gateway,Order,Payment,OrderDB,PaymentDB,PostgreSQL,Prometheus,Grafana implemented
+    class FluentBit,Loki,OTel,Jaeger,Alertmanager,GHA planned
     class Client client
 ```
+
+**Architecture Legend:**
+
+- Green — Implemented components.
+- Amber with dashed borders — Planned components.
 
 ### Request Flow
 
@@ -114,7 +158,6 @@ The project is being developed incrementally.
 | Centralized logging with Loki and Fluent Bit | Planned |
 | Distributed tracing with OpenTelemetry and Jaeger | Planned |
 | Alerting with Alertmanager | Planned |
-| Kubernetes orchestration | Planned |
 | CI/CD with GitHub Actions | Planned |
 
 ---
@@ -175,7 +218,6 @@ For more details, see [Observability Architecture](docs/architecture/observabili
 | Centralized Logging | Loki, Fluent Bit |
 | Distributed Tracing | OpenTelemetry, Jaeger |
 | Alerting | Alertmanager |
-| Orchestration | Kubernetes |
 | CI/CD | GitHub Actions |
 
 ---
