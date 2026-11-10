@@ -1,168 +1,725 @@
 {
   "uid": "pulsetrace-overview",
-  "title": "PulseTrace Overview",
-  "tags": ["pulsetrace"],
+  "title": "PulseTrace – System Overview",
+  "tags": [
+    "pulsetrace"
+  ],
   "timezone": "browser",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "refresh": "10s",
-  "time": { "from": "now-30m", "to": "now" },
-  "templating": { "list": [] },
-  "annotations": { "list": [] },
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
   "panels": [
     {
-      "id": 1, "type": "stat", "title": "Services up",
-      "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "expr": "sum(up)", "instant": true }],
-      "fieldConfig": { "defaults": {
-        "unit": "none", "decimals": 0,
-        "thresholds": { "mode": "absolute", "steps": [
-          { "color": "red", "value": null },
-          { "color": "orange", "value": 2 },
-          { "color": "green", "value": 3 } ] } }, "overrides": [] },
-      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value" }
+      "id": 100,
+      "type": "row",
+      "title": "1. System Health",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
     },
     {
-      "id": 2, "type": "stat", "title": "Request rate",
-      "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "expr": "sum(rate(http_requests_total{service=\"api-gateway\"}[1m]))" }],
-      "fieldConfig": { "defaults": { "unit": "reqps", "decimals": 2,
-        "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] },
-      "options": { "colorMode": "value", "graphMode": "area", "textMode": "value" }
-    },
-    {
-      "id": 3, "type": "stat", "title": "Error rate (5xx)",
-      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A",
-        "expr": "sum(rate(http_requests_total{service=\"api-gateway\",status_code=~\"5..\"}[5m])) / (sum(rate(http_requests_total{service=\"api-gateway\"}[5m])) > 0)" }],
-      "fieldConfig": { "defaults": { "unit": "percentunit", "decimals": 1, "noValue": "0%",
-        "thresholds": { "mode": "absolute", "steps": [
-          { "color": "green", "value": null },
-          { "color": "orange", "value": 0.01 },
-          { "color": "red", "value": 0.05 } ] } }, "overrides": [] },
-      "options": { "colorMode": "background", "graphMode": "none", "textMode": "value" }
-    },
-    {
-      "id": 4, "type": "stat", "title": "p95 latency (gateway)",
-      "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A",
-        "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\"}[5m])) by (le))" }],
-      "fieldConfig": { "defaults": { "unit": "s", "decimals": 3, "noValue": "-",
-        "thresholds": { "mode": "absolute", "steps": [
-          { "color": "green", "value": null },
-          { "color": "orange", "value": 0.5 },
-          { "color": "red", "value": 1 } ] } }, "overrides": [] },
-      "options": { "colorMode": "value", "graphMode": "area", "textMode": "value" }
-    },
-    {
-      "id": 5, "type": "stat", "title": "Orders PAID",
-      "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "expr": "sum(orders_created_total{status=\"PAID\"})" }],
-      "fieldConfig": { "defaults": { "unit": "none", "decimals": 0, "noValue": "0",
-        "color": { "mode": "fixed", "fixedColor": "green" } }, "overrides": [] },
-      "options": { "colorMode": "value", "graphMode": "none", "textMode": "value" }
-    },
-    {
-      "id": 6, "type": "stat", "title": "Payments FAILED",
-      "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "expr": "sum(payments_processed_total{status=\"FAILED\"})" }],
-      "fieldConfig": { "defaults": { "unit": "none", "decimals": 0, "noValue": "0",
-        "color": { "mode": "fixed", "fixedColor": "red" } }, "overrides": [] },
-      "options": { "colorMode": "value", "graphMode": "none", "textMode": "value" }
-    },
-    {
-      "id": 7, "type": "timeseries", "title": "Request rate by service",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "legendFormat": "{{service}}",
-        "expr": "sum(rate(http_requests_total[1m])) by (service)" }],
-      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "lineWidth": 2, "fillOpacity": 15, "showPoints": "never" } }, "overrides": [] },
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] }, "tooltip": { "mode": "multi" } }
-    },
-    {
-      "id": 8, "type": "timeseries", "title": "Requests by status code",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "legendFormat": "{{status_code}}",
-        "expr": "sum(rate(http_requests_total{service=\"api-gateway\"}[1m])) by (status_code)" }],
-      "fieldConfig": { "defaults": { "unit": "reqps", "custom": { "lineWidth": 2, "fillOpacity": 25, "stacking": { "mode": "normal" }, "showPoints": "never" } },
-        "overrides": [
-          { "matcher": { "id": "byRegexp", "options": "2.." }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] },
-          { "matcher": { "id": "byRegexp", "options": "4.." }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] },
-          { "matcher": { "id": "byRegexp", "options": "5.." }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }
-        ] },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
-    },
-    {
-      "id": 9, "type": "timeseries", "title": "p95 latency by service",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "legendFormat": "{{service}}",
-        "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, service))" }],
-      "fieldConfig": { "defaults": { "unit": "s", "custom": { "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" } }, "overrides": [] },
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull", "max"] }, "tooltip": { "mode": "multi" } }
-    },
-    {
-      "id": 10, "type": "timeseries", "title": "Gateway latency percentiles",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "id": 1,
+      "type": "stat",
+      "title": "Services Available",
+      "description": "Percentage of currently configured Prometheus scrape targets that are up.",
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "targets": [
-        { "refId": "A", "legendFormat": "p50", "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\"}[5m])) by (le))" },
-        { "refId": "B", "legendFormat": "p95", "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\"}[5m])) by (le))" },
-        { "refId": "C", "legendFormat": "p99", "expr": "histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\"}[5m])) by (le))" }
+        {
+          "refId": "A",
+          "expr": "avg(up) * 100",
+          "instant": true
+        }
       ],
-      "fieldConfig": { "defaults": { "unit": "s", "custom": { "lineWidth": 2, "fillOpacity": 5, "showPoints": "never" } }, "overrides": [] },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "noValue": "No targets",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 80
+              },
+              {
+                "color": "green",
+                "value": 100
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      }
     },
     {
-      "id": 11, "type": "timeseries", "title": "Orders by status",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "legendFormat": "{{status}}",
-        "expr": "sum(increase(orders_created_total[1m])) by (status)" }],
-      "fieldConfig": { "defaults": { "unit": "none", "decimals": 0, "custom": { "drawStyle": "bars", "fillOpacity": 70, "lineWidth": 1, "stacking": { "mode": "normal" } } },
-        "overrides": [
-          { "matcher": { "id": "byName", "options": "PAID" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] },
-          { "matcher": { "id": "byName", "options": "PAYMENT_FAILED" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] },
-          { "matcher": { "id": "byName", "options": "PENDING" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } }] }
-        ] },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+      "id": 2,
+      "type": "stat",
+      "title": "Service Availability",
+      "description": "Availability of each configured service scrape target. 100% means the target is up; 0% means it is down.",
+      "gridPos": {
+        "h": 4,
+        "w": 18,
+        "x": 6,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "up * 100",
+          "legendFormat": "{{job}}",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 0,
+          "noValue": "No targets",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 100
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value_and_name"
+      }
     },
     {
-      "id": 12, "type": "timeseries", "title": "Payments by status",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "legendFormat": "{{status}}",
-        "expr": "sum(increase(payments_processed_total[1m])) by (status)" }],
-      "fieldConfig": { "defaults": { "unit": "none", "decimals": 0, "custom": { "drawStyle": "bars", "fillOpacity": 70, "lineWidth": 1, "stacking": { "mode": "normal" } } },
-        "overrides": [
-          { "matcher": { "id": "byName", "options": "SUCCEEDED" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "green" } }] },
-          { "matcher": { "id": "byName", "options": "FAILED" }, "properties": [{ "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } }] }
-        ] },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+      "id": 101,
+      "type": "row",
+      "title": "2. HTTP Performance",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "panels": []
     },
     {
-      "id": 13, "type": "timeseries", "title": "Gateway upstream errors",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "legendFormat": "{{code}}",
-        "expr": "sum(increase(gateway_upstream_errors_total[1m])) by (code)" }],
-      "fieldConfig": { "defaults": { "unit": "none", "decimals": 0, "custom": { "drawStyle": "bars", "fillOpacity": 70, "lineWidth": 1 }, "color": { "mode": "fixed", "fixedColor": "red" } }, "overrides": [] },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+      "id": 3,
+      "type": "stat",
+      "title": "Gateway Request Rate",
+      "description": "Average incoming requests per second at the API Gateway over the last 5 minutes.",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(http_requests_total{service=\"api-gateway\"}[5m]))",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 2,
+          "noValue": "No traffic"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      }
     },
     {
-      "id": 14, "type": "timeseries", "title": "Event loop lag (p99)",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "refId": "A", "legendFormat": "{{service}}", "expr": "nodejs_eventloop_lag_p99_seconds" }],
-      "fieldConfig": { "defaults": { "unit": "s", "custom": { "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" } }, "overrides": [] },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } }
+      "id": 4,
+      "type": "stat",
+      "title": "Gateway HTTP 5xx Error Rate",
+      "description": "Share of Gateway requests that returned HTTP 5xx over the last 5 minutes. Displays No traffic when the denominator is zero.",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 8,
+        "y": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(rate(http_requests_total{service=\"api-gateway\",status_code=~\"5..\"}[5m])) or vector(0)) / (sum(rate(http_requests_total{service=\"api-gateway\"}[5m])) > 0)",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "noValue": "No traffic",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.01
+              },
+              {
+                "color": "red",
+                "value": 0.05
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Gateway p95 Latency",
+      "description": "95% of Gateway requests completed within this duration over the last 5 minutes.",
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 16,
+        "y": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{service=\"api-gateway\"}[5m])) by (le))",
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "noValue": "No traffic",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Request Rate by Service",
+      "description": "Requests per second handled by each service, averaged over 5 minutes.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 10
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service) (rate(http_requests_total[5m]))",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 2,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Gateway Requests by HTTP Status",
+      "description": "Gateway request rate grouped by HTTP response status code.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 10
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status_code) (rate(http_requests_total{service=\"api-gateway\"}[5m]))",
+          "legendFormat": "{{status_code}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "decimals": 2,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "p95 Latency by Service",
+      "description": "95th-percentile HTTP request duration for each service over 5 minutes.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, service) (rate(http_request_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 3,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 102,
+      "type": "row",
+      "title": "3. Business Metrics",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      },
+      "panels": []
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Orders Created by Status",
+      "description": "Number of orders whose creation flow completed in each status during the last 5 minutes.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 28
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (increase(orders_created_total[5m]))",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "drawStyle": "bars"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Payments Processed by Status",
+      "description": "Payment records processed during the last 5 minutes, grouped by business outcome. FAILED is not necessarily a technical service failure.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 28
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (increase(payments_processed_total[5m]))",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "drawStyle": "bars"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Gateway Upstream Errors",
+      "description": "Technical failures while communicating with the Order Service, grouped by error code during the last 5 minutes.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 28
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (code) (increase(gateway_upstream_errors_total[5m]))",
+          "legendFormat": "{{code}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "drawStyle": "bars"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 103,
+      "type": "row",
+      "title": "4. Node.js Runtime",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 36
+      },
+      "panels": []
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Event Loop Lag (p99)",
+      "description": "99th-percentile Node.js event-loop delay, reported in seconds.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 37
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "nodejs_eventloop_lag_p99_seconds",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "decimals": 4,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "CPU Usage (% of One Core)",
+      "description": "Node.js process CPU time as a percentage of one fully used CPU core. This is not total host CPU utilization.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 37
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum by (service) (rate(process_cpu_user_seconds_total[5m])) + sum by (service) (rate(process_cpu_system_seconds_total[5m]))) * 100",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Memory Usage",
+      "description": "RSS is the process resident memory. Heap Used is the JavaScript heap in use; these values overlap and must not be added.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 37
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "process_resident_memory_bytes",
+          "legendFormat": "{{service}} RSS"
+        },
+        {
+          "refId": "B",
+          "expr": "nodejs_heap_size_used_bytes",
+          "legendFormat": "{{service}} Heap Used"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "decimals": 0,
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
     }
-  ]
+  ],
+  "description": "A single overview of PulseTrace service health, HTTP performance, business activity, and Node.js runtime."
 }
