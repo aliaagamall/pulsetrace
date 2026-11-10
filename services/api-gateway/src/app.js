@@ -11,6 +11,28 @@ function createApp({
   logger = createLogger("api-gateway"),
   metrics = createMetrics("api-gateway")
 } = {}) {
+  async function requestOrderService(path, options) {
+    try {
+      const result = await orderClient.request(path, options);
+
+      if (result.status >= 500) {
+        metrics.gatewayUpstreamErrorsTotal.inc({
+          code: "ORDER_SERVICE_HTTP_5XX"
+        });
+      }
+
+      return result;
+    } catch (error) {
+      if (error.isUpstreamError === true) {
+        metrics.gatewayUpstreamErrorsTotal.inc({
+          code: error.code || "ORDER_SERVICE_ERROR"
+        });
+      }
+
+      throw error;
+    }
+  }
+
   const app = express();
 
   // Log one structured line per request and attach a request ID.
@@ -70,7 +92,7 @@ function createApp({
 
   app.post("/api/orders", async (req, res, next) => {
     try {
-      const result = await orderClient.request("/orders", {
+      const result = await requestOrderService("/orders", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -87,7 +109,7 @@ function createApp({
 
   app.get("/api/orders/:id", async (req, res, next) => {
     try {
-      const result = await orderClient.request(
+      const result = await requestOrderService(
         `/orders/${encodeURIComponent(req.params.id)}`,
         {
           headers: {
@@ -118,8 +140,6 @@ function createApp({
 
     const statusCode = error.statusCode || 502;
     const code = error.code || "UPSTREAM_SERVICE_ERROR";
-
-    metrics.gatewayUpstreamErrorsTotal.inc({ code });
 
     const logError = statusCode >= 500 ? req.log.error : req.log.warn;
     logError.call(req.log, { error }, "gateway error");

@@ -25,7 +25,7 @@ function createMetrics(service) {
 
   const gatewayUpstreamErrorsTotal = new client.Counter({
     name: "gateway_upstream_errors_total",
-    help: "Errors returned by the gateway when the Order Service fails",
+    help: "Technical failures while communicating with the Order Service, including transport errors, invalid responses, and upstream 5xx responses",
     labelNames: ["code"],
     registers: [registry]
   });
